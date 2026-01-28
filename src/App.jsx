@@ -1099,7 +1099,7 @@ const MasterDashboard = () => {
             <div className="metric-group-header">Returns</div>
             <div className="metric-large">
               <span className="metric-label">Gross Multiple</span>
-              <span className="metric-value" style={{ color: '#6BCB77' }}>{grossMultiple.toFixed(2)}x</span>
+              <span className="metric-value" style={{ color: '#6BCB77' }}>{calculations.grossMultiple.toFixed(2)}x</span>
             </div>
             <div className="metric-large">
               <span className="metric-label">Net Multiple</span>
