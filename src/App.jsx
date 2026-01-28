@@ -612,7 +612,7 @@ const MasterDashboard = () => {
   const [hurdleRate, setHurdleRate] = useState(0.08);         // 8% preferred return
 
   // Performance input - GROSS multiple is the driver, net is derived
-  const [grossMultipleTarget, setGrossMultipleTarget] = useState(2.5); // 2.5x gross → ~2.0x net
+  const [grossMultipleTarget, setGrossMultipleTarget] = useState(2.25); // 2.25x gross → ~2.0x net
 
   // Calculate everything from GROSS down to NET
   const calculations = useMemo(() => {
@@ -648,9 +648,6 @@ const MasterDashboard = () => {
     let totalExpenses = 0;
     const yearlyFeeData = [];
 
-    // Fee cash flows (these are additional LP outflows on top of investment capital)
-    const feeCashFlows = [];
-
     for (let year = 1; year <= fundLife; year++) {
       const quarter = year * 4;
       const isInvPeriod = year <= investmentPeriod;
@@ -678,13 +675,6 @@ const MasterDashboard = () => {
       const effectiveExpenseRate = isInvPeriod ? expenseRate : expenseRate * 0.4;
       const expense = feeBasis * effectiveExpenseRate;
       totalExpenses += expense;
-
-      // Record as quarterly cash outflow (spread evenly across year)
-      const quarterlyFee = fee / 4;
-      const quarterlyExpense = expense / 4;
-      for (let q = (year - 1) * 4 + 1; q <= year * 4 && q <= totalQuarters; q++) {
-        feeCashFlows.push({ period: q, amount: -(quarterlyFee + quarterlyExpense) });
-      }
 
       yearlyFeeData.push({
         year,
@@ -733,18 +723,15 @@ const MasterDashboard = () => {
     const netProfit = netDistributions - fundSizeM;
 
     // Build net cash flows for IRR calculation
+    // Note: Fees are paid from committed capital, not in addition to it.
+    // The fee impact shows in reduced returns (less capital invested), not higher outflows.
     const netCashFlows = [];
 
-    // LP capital calls (for investments) - from gross curve
+    // LP capital calls - same timing as gross (committed capital called over time)
     grossQuarterlyData.forEach((q) => {
       if (q.capitalCall > 0) {
         netCashFlows.push({ period: q.quarter, amount: -q.capitalCall * fundSizeM });
       }
-    });
-
-    // Add fee outflows
-    feeCashFlows.forEach(cf => {
-      netCashFlows.push(cf);
     });
 
     // LP distributions (gross distributions minus carry, spread proportionally)
