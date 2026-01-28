@@ -5,8 +5,15 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 // ============================================================================
 
 const formatCurrency = (value, decimals = 1) => {
-  if (Math.abs(value) >= 1e9) return `$${(value / 1e9).toFixed(decimals)}B`;
-  if (Math.abs(value) >= 1e6) return `$${(value / 1e6).toFixed(decimals)}M`;
+  // Always display in millions for granular detail
+  if (Math.abs(value) >= 1e6) {
+    const millions = value / 1e6;
+    if (millions >= 1000) {
+      // For $1,000M+ show with comma: $1,500M
+      return `$${millions.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}M`;
+    }
+    return `$${millions.toFixed(decimals)}M`;
+  }
   if (Math.abs(value) >= 1e3) return `$${(value / 1e3).toFixed(decimals)}K`;
   return `$${value.toFixed(decimals)}`;
 };
