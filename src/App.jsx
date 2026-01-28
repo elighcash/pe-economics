@@ -462,67 +462,59 @@ const Header = () => (
 );
 
 // ============================================================================
-// BASE CURVE DATA - Quarterly LP net returns for a typical 2.0x net fund
-// Source: Industry benchmark data, 2% mgmt fee, 20% carry, 50bps expenses
+// BASE CURVE DATA - Quarterly LP net returns calibrated to ~15% IRR at 2.0x net
+// 12-year fund, capital called by Year 5, distributions start Year 3
 // ============================================================================
 
 const BASE_CURVE = [
-  { q: 1, drawdown: 0.0375, dpi: 0.000, rvpi: 0.940 },
-  { q: 2, drawdown: 0.0750, dpi: 0.000, rvpi: 0.940 },
-  { q: 3, drawdown: 0.1125, dpi: 0.000, rvpi: 0.940 },
-  { q: 4, drawdown: 0.1500, dpi: 0.000, rvpi: 0.940 },
-  { q: 5, drawdown: 0.2125, dpi: 0.000, rvpi: 0.941 },
-  { q: 6, drawdown: 0.2750, dpi: 0.000, rvpi: 0.943 },
-  { q: 7, drawdown: 0.3375, dpi: 0.000, rvpi: 0.944 },
-  { q: 8, drawdown: 0.4000, dpi: 0.000, rvpi: 0.945 },
-  { q: 9, drawdown: 0.4500, dpi: 0.001, rvpi: 0.947 },
-  { q: 10, drawdown: 0.5000, dpi: 0.002, rvpi: 0.948 },
-  { q: 11, drawdown: 0.5500, dpi: 0.003, rvpi: 0.949 },
-  { q: 12, drawdown: 0.6000, dpi: 0.004, rvpi: 0.951 },
-  { q: 13, drawdown: 0.6375, dpi: 0.008, rvpi: 0.952 },
-  { q: 14, drawdown: 0.6750, dpi: 0.012, rvpi: 0.953 },
-  { q: 15, drawdown: 0.7125, dpi: 0.017, rvpi: 0.952 },
-  { q: 16, drawdown: 0.7500, dpi: 0.023, rvpi: 0.954 },
-  { q: 17, drawdown: 0.7750, dpi: 0.027, rvpi: 0.957 },
-  { q: 18, drawdown: 0.8000, dpi: 0.040, rvpi: 0.960 },
-  { q: 19, drawdown: 0.8250, dpi: 0.056, rvpi: 0.956 },
-  { q: 20, drawdown: 0.8500, dpi: 0.074, rvpi: 0.954 },
-  { q: 21, drawdown: 0.8750, dpi: 0.098, rvpi: 0.953 },
-  { q: 22, drawdown: 0.9000, dpi: 0.126, rvpi: 0.950 },
-  { q: 23, drawdown: 0.9250, dpi: 0.158, rvpi: 0.941 },
-  { q: 24, drawdown: 0.9500, dpi: 0.192, rvpi: 0.930 },
-  { q: 25, drawdown: 0.9625, dpi: 0.237, rvpi: 0.921 },
-  { q: 26, drawdown: 0.9750, dpi: 0.282, rvpi: 0.910 },
-  { q: 27, drawdown: 0.9875, dpi: 0.329, rvpi: 0.894 },
-  { q: 28, drawdown: 1.0000, dpi: 0.380, rvpi: 0.873 },
-  { q: 29, drawdown: 1.0000, dpi: 0.446, rvpi: 0.851 },
-  { q: 30, drawdown: 1.0000, dpi: 0.515, rvpi: 0.827 },
-  { q: 31, drawdown: 1.0000, dpi: 0.589, rvpi: 0.796 },
-  { q: 32, drawdown: 1.0000, dpi: 0.666, rvpi: 0.765 },
-  { q: 33, drawdown: 1.0000, dpi: 0.747, rvpi: 0.731 },
-  { q: 34, drawdown: 1.0000, dpi: 0.831, rvpi: 0.695 },
-  { q: 35, drawdown: 1.0000, dpi: 0.920, rvpi: 0.653 },
-  { q: 36, drawdown: 1.0000, dpi: 1.013, rvpi: 0.612 },
-  { q: 37, drawdown: 1.0000, dpi: 1.092, rvpi: 0.572 },
-  { q: 38, drawdown: 1.0000, dpi: 1.173, rvpi: 0.528 },
-  { q: 39, drawdown: 1.0000, dpi: 1.259, rvpi: 0.485 },
-  { q: 40, drawdown: 1.0000, dpi: 1.350, rvpi: 0.444 },
-  { q: 41, drawdown: 1.0000, dpi: 1.406, rvpi: 0.405 },
-  { q: 42, drawdown: 1.0000, dpi: 1.460, rvpi: 0.362 },
-  { q: 43, drawdown: 1.0000, dpi: 1.517, rvpi: 0.325 },
-  { q: 44, drawdown: 1.0000, dpi: 1.573, rvpi: 0.291 },
-  { q: 45, drawdown: 1.0000, dpi: 1.629, rvpi: 0.263 },
-  { q: 46, drawdown: 1.0000, dpi: 1.684, rvpi: 0.234 },
-  { q: 47, drawdown: 1.0000, dpi: 1.741, rvpi: 0.208 },
-  { q: 48, drawdown: 1.0000, dpi: 1.797, rvpi: 0.182 },
-  { q: 49, drawdown: 1.0000, dpi: 1.835, rvpi: 0.156 },
-  { q: 50, drawdown: 1.0000, dpi: 1.872, rvpi: 0.130 },
-  { q: 51, drawdown: 1.0000, dpi: 1.910, rvpi: 0.104 },
-  { q: 52, drawdown: 1.0000, dpi: 1.948, rvpi: 0.078 },
-  { q: 53, drawdown: 1.0000, dpi: 1.968, rvpi: 0.052 },
-  { q: 54, drawdown: 1.0000, dpi: 1.981, rvpi: 0.026 },
-  { q: 55, drawdown: 1.0000, dpi: 1.995, rvpi: 0.009 },
-  { q: 56, drawdown: 1.0000, dpi: 2.000, rvpi: 0.000 },
+  { q: 1, drawdown: 0.0500, dpi: 0.000, rvpi: 0.930 },
+  { q: 2, drawdown: 0.1000, dpi: 0.000, rvpi: 0.940 },
+  { q: 3, drawdown: 0.1500, dpi: 0.000, rvpi: 0.950 },
+  { q: 4, drawdown: 0.2000, dpi: 0.000, rvpi: 0.960 },
+  { q: 5, drawdown: 0.2750, dpi: 0.000, rvpi: 0.970 },
+  { q: 6, drawdown: 0.3500, dpi: 0.000, rvpi: 0.980 },
+  { q: 7, drawdown: 0.4250, dpi: 0.000, rvpi: 0.990 },
+  { q: 8, drawdown: 0.5000, dpi: 0.000, rvpi: 1.000 },
+  { q: 9, drawdown: 0.5500, dpi: 0.000, rvpi: 1.035 },
+  { q: 10, drawdown: 0.6000, dpi: 0.000, rvpi: 1.070 },
+  { q: 11, drawdown: 0.6500, dpi: 0.000, rvpi: 1.105 },
+  { q: 12, drawdown: 0.7000, dpi: 0.000, rvpi: 1.140 },
+  { q: 13, drawdown: 0.7500, dpi: 0.056, rvpi: 1.119 },
+  { q: 14, drawdown: 0.8000, dpi: 0.111, rvpi: 1.099 },
+  { q: 15, drawdown: 0.8500, dpi: 0.167, rvpi: 1.078 },
+  { q: 16, drawdown: 0.9000, dpi: 0.222, rvpi: 1.058 },
+  { q: 17, drawdown: 0.9250, dpi: 0.278, rvpi: 1.037 },
+  { q: 18, drawdown: 0.9500, dpi: 0.333, rvpi: 1.017 },
+  { q: 19, drawdown: 0.9750, dpi: 0.389, rvpi: 0.996 },
+  { q: 20, drawdown: 1.0000, dpi: 0.444, rvpi: 0.976 },
+  { q: 21, drawdown: 1.0000, dpi: 0.500, rvpi: 0.935 },
+  { q: 22, drawdown: 1.0000, dpi: 0.556, rvpi: 0.894 },
+  { q: 23, drawdown: 1.0000, dpi: 0.611, rvpi: 0.854 },
+  { q: 24, drawdown: 1.0000, dpi: 0.667, rvpi: 0.813 },
+  { q: 25, drawdown: 1.0000, dpi: 0.722, rvpi: 0.773 },
+  { q: 26, drawdown: 1.0000, dpi: 0.778, rvpi: 0.732 },
+  { q: 27, drawdown: 1.0000, dpi: 0.833, rvpi: 0.692 },
+  { q: 28, drawdown: 1.0000, dpi: 0.889, rvpi: 0.651 },
+  { q: 29, drawdown: 1.0000, dpi: 0.944, rvpi: 0.611 },
+  { q: 30, drawdown: 1.0000, dpi: 1.000, rvpi: 0.570 },
+  { q: 31, drawdown: 1.0000, dpi: 1.056, rvpi: 0.529 },
+  { q: 32, drawdown: 1.0000, dpi: 1.111, rvpi: 0.489 },
+  { q: 33, drawdown: 1.0000, dpi: 1.167, rvpi: 0.458 },
+  { q: 34, drawdown: 1.0000, dpi: 1.222, rvpi: 0.428 },
+  { q: 35, drawdown: 1.0000, dpi: 1.278, rvpi: 0.397 },
+  { q: 36, drawdown: 1.0000, dpi: 1.333, rvpi: 0.367 },
+  { q: 37, drawdown: 1.0000, dpi: 1.389, rvpi: 0.336 },
+  { q: 38, drawdown: 1.0000, dpi: 1.444, rvpi: 0.306 },
+  { q: 39, drawdown: 1.0000, dpi: 1.500, rvpi: 0.275 },
+  { q: 40, drawdown: 1.0000, dpi: 1.556, rvpi: 0.244 },
+  { q: 41, drawdown: 1.0000, dpi: 1.611, rvpi: 0.214 },
+  { q: 42, drawdown: 1.0000, dpi: 1.667, rvpi: 0.183 },
+  { q: 43, drawdown: 1.0000, dpi: 1.722, rvpi: 0.153 },
+  { q: 44, drawdown: 1.0000, dpi: 1.778, rvpi: 0.122 },
+  { q: 45, drawdown: 1.0000, dpi: 1.833, rvpi: 0.092 },
+  { q: 46, drawdown: 1.0000, dpi: 1.889, rvpi: 0.061 },
+  { q: 47, drawdown: 1.0000, dpi: 1.944, rvpi: 0.031 },
+  { q: 48, drawdown: 1.0000, dpi: 2.000, rvpi: 0.000 },
 ];
 
 // Calculate IRR from cash flows using Newton-Raphson method
@@ -565,8 +557,8 @@ const MasterDashboard = () => {
   const [carryRate, setCarryRate] = useState(0.20);
   const [hurdleRate, setHurdleRate] = useState(0.08);
   const [netMultipleTarget, setNetMultipleTarget] = useState(2.0); // This scales the base curve
-  const [fundLife, setFundLife] = useState(14); // 14 years = 56 quarters
-  const [investmentPeriod, setInvestmentPeriod] = useState(7); // 7 years = 28 quarters to full drawdown
+  const [fundLife, setFundLife] = useState(12); // 12 years = 48 quarters
+  const [investmentPeriod, setInvestmentPeriod] = useState(5); // 5 years = 20 quarters to full drawdown
 
   // Calculate everything using base curve data
   const calculations = useMemo(() => {
