@@ -469,6 +469,7 @@ const MasterDashboard = () => {
   // All the key inputs
   const [fundSize, setFundSize] = useState(500);
   const [mgmtFeeRate, setMgmtFeeRate] = useState(0.02);
+  const [expenseRate, setExpenseRate] = useState(0.005); // 50bps during investment period
   const [carryRate, setCarryRate] = useState(0.20);
   const [hurdleRate, setHurdleRate] = useState(0.08);
   const [grossMultiple, setGrossMultiple] = useState(2.0);
@@ -478,8 +479,9 @@ const MasterDashboard = () => {
 
   // Calculate everything
   const calculations = useMemo(() => {
-    // Management fees calculation
+    // Management fees and expenses calculation
     let totalMgmtFees = 0;
+    let totalExpenses = 0;
     const yearlyData = [];
 
     for (let year = 1; year <= fundLife; year++) {
@@ -499,16 +501,24 @@ const MasterDashboard = () => {
       const fee = feeBasis * rate;
       totalMgmtFees += fee;
 
+      // Expenses: higher during investment period (deal sourcing, due diligence, legal)
+      // Lower during harvest period
+      const yearExpenseRate = isInvestmentPeriod ? expenseRate : expenseRate * 0.4;
+      const expense = feeBasis * yearExpenseRate;
+      totalExpenses += expense;
+
       yearlyData.push({
         year,
         fee,
+        expense,
         cumulativeFees: totalMgmtFees,
+        cumulativeExpenses: totalExpenses,
         isInvestmentPeriod
       });
     }
 
-    // Capital available for investment after fees
-    const investableCapital = fundSize * 0.92; // ~8% reserved for fees during investment period
+    // Capital available for investment after fees and expenses
+    const investableCapital = fundSize * 0.90; // ~10% reserved for fees + expenses during investment period
 
     // Gross value at exit
     const grossValue = investableCapital * grossMultiple;
@@ -525,8 +535,9 @@ const MasterDashboard = () => {
       carry = totalGrossProfit * carryRate;
     }
 
-    // Net calculations
-    const totalFees = totalMgmtFees + carry;
+    // Net calculations (after mgmt fees, expenses, and carry)
+    const totalFeesAndExpenses = totalMgmtFees + totalExpenses;
+    const totalCosts = totalFeesAndExpenses + carry;
     const netValue = grossValue - carry;
     const netMultiple = netValue / fundSize;
     const netProfit = netValue - fundSize;
@@ -535,35 +546,39 @@ const MasterDashboard = () => {
     const grossIRR = Math.pow(grossMultiple, 1 / avgHoldPeriod) - 1;
     const netIRR = Math.pow(netMultiple, 1 / avgHoldPeriod) - 1;
 
-    // Fee drag
-    const feeDragPercent = totalGrossProfit > 0 ? (totalFees / totalGrossProfit) * 100 : 0;
+    // Fee drag (includes expenses)
+    const feeDragPercent = totalGrossProfit > 0 ? (totalCosts / totalGrossProfit) * 100 : 0;
 
     // Breakdown for visualization
     const breakdown = [
       { label: 'LP Contribution', value: fundSize, color: '#4ECDC4', cumulative: fundSize },
       { label: 'Gross Profit', value: totalGrossProfit, color: '#6BCB77', cumulative: fundSize + totalGrossProfit },
-      { label: 'Management Fees', value: -totalMgmtFees, color: '#FF6B6B', cumulative: fundSize + totalGrossProfit - totalMgmtFees },
-      { label: 'Carried Interest', value: -carry, color: '#FFD93D', cumulative: netValue },
+      { label: 'Mgmt Fees', value: -totalMgmtFees, color: '#FF6B6B', cumulative: fundSize + totalGrossProfit - totalMgmtFees },
+      { label: 'Expenses', value: -totalExpenses, color: '#FF8E53', cumulative: fundSize + totalGrossProfit - totalMgmtFees - totalExpenses },
+      { label: 'GP Carry', value: -carry, color: '#FFD93D', cumulative: netValue - totalExpenses },
+      { label: 'LP Net', value: netValue - totalExpenses, color: '#4ECDC4', cumulative: netValue - totalExpenses },
     ];
 
     return {
       totalMgmtFees,
+      totalExpenses,
+      totalFeesAndExpenses,
       carry,
-      totalFees,
+      totalCosts,
       grossValue,
-      netValue,
+      netValue: netValue - totalExpenses,
       grossMultiple,
-      netMultiple,
+      netMultiple: (netValue - totalExpenses) / fundSize,
       grossIRR,
-      netIRR,
+      netIRR: Math.pow((netValue - totalExpenses) / fundSize, 1 / avgHoldPeriod) - 1,
       hurdleCleared,
       feeDragPercent,
       yearlyData,
       breakdown,
       totalGrossProfit,
-      netProfit
+      netProfit: netValue - totalExpenses - fundSize
     };
-  }, [fundSize, mgmtFeeRate, carryRate, hurdleRate, grossMultiple, fundLife, investmentPeriod, waterfallType]);
+  }, [fundSize, mgmtFeeRate, expenseRate, carryRate, hurdleRate, grossMultiple, fundLife, investmentPeriod, waterfallType]);
 
   // Canvas-based fund lifecycle visualization
   const lifecycleCanvasRef = useRef(null);
@@ -754,6 +769,7 @@ const MasterDashboard = () => {
       { label: 'LP Capital', value: fundSize, color: '#4ECDC4' },
       { label: 'Gross Profit', value: calculations.totalGrossProfit, color: '#6BCB77' },
       { label: 'Mgmt Fees', value: calculations.totalMgmtFees, color: '#FF6B6B', isDeduction: true },
+      { label: 'Expenses', value: calculations.totalExpenses, color: '#FF8E53', isDeduction: true },
       { label: 'GP Carry', value: calculations.carry, color: '#FFD93D', isDeduction: true },
       { label: 'LP Net', value: calculations.netValue, color: '#4ECDC4' },
     ];
@@ -882,6 +898,16 @@ const MasterDashboard = () => {
               accent="#FF6B6B"
             />
             <Slider
+              value={expenseRate}
+              onChange={setExpenseRate}
+              min={0.001}
+              max={0.01}
+              step={0.001}
+              label="Fund Expenses"
+              format={(v) => `${(v * 10000).toFixed(0)} bps`}
+              accent="#FF8E53"
+            />
+            <Slider
               value={carryRate}
               onChange={setCarryRate}
               min={0.15}
@@ -961,10 +987,14 @@ const MasterDashboard = () => {
           </div>
 
           <div className="metric-group">
-            <div className="metric-group-header">Fees & Carry</div>
+            <div className="metric-group-header">Fees, Expenses & Carry</div>
             <div className="metric-small">
               <span>Management Fees</span>
               <span style={{ color: '#FF6B6B' }}>{formatCurrency(calculations.totalMgmtFees * 1e6, 0)}</span>
+            </div>
+            <div className="metric-small">
+              <span>Fund Expenses</span>
+              <span style={{ color: '#FF8E53' }}>{formatCurrency(calculations.totalExpenses * 1e6, 0)}</span>
             </div>
             <div className="metric-small">
               <span>Carried Interest</span>
@@ -972,11 +1002,11 @@ const MasterDashboard = () => {
             </div>
             <div className="metric-divider"></div>
             <div className="metric-small">
-              <span>Total GP Economics</span>
-              <span style={{ color: '#fff' }}>{formatCurrency(calculations.totalFees * 1e6, 0)}</span>
+              <span>Total Costs</span>
+              <span style={{ color: '#fff' }}>{formatCurrency(calculations.totalCosts * 1e6, 0)}</span>
             </div>
             <div className="metric-small highlight">
-              <span>Fee Drag</span>
+              <span>Cost Drag</span>
               <span style={{ color: calculations.feeDragPercent > 30 ? '#FF6B6B' : '#888' }}>
                 {calculations.feeDragPercent.toFixed(1)}% of profits
               </span>
@@ -1393,6 +1423,200 @@ const ManagementFeeSection = () => {
           <strong> 9% of your commitment</strong>—real money on a $100M allocation.
         </div>
       </div>
+    </section>
+  );
+};
+
+const ExpensesSection = () => {
+  const [fundSize, setFundSize] = useState(500);
+  const [investmentPeriod, setInvestmentPeriod] = useState(5);
+  const [fundLife, setFundLife] = useState(10);
+  const [expenseRate, setExpenseRate] = useState(0.005);
+
+  const expenseData = useMemo(() => {
+    const categories = [
+      { name: 'Legal & Compliance', percent: 25, color: '#4ECDC4', description: 'Fund formation, transaction docs, regulatory filings' },
+      { name: 'Accounting & Audit', percent: 20, color: '#6BCB77', description: 'Annual audits, tax prep, fund administration' },
+      { name: 'Due Diligence', percent: 20, color: '#FFD93D', description: 'Third-party diligence providers, consultants' },
+      { name: 'Travel & Meetings', percent: 15, color: '#FF8E53', description: 'Deal sourcing, portfolio company visits, AGMs' },
+      { name: 'Insurance & Other', percent: 12, color: '#FF6B6B', description: 'D&O insurance, cybersecurity, bank fees' },
+      { name: 'Broken Deal Costs', percent: 8, color: '#888', description: 'Costs from deals that don\'t close' },
+    ];
+
+    let totalExpenses = 0;
+    const yearlyExpenses = [];
+
+    for (let year = 1; year <= fundLife; year++) {
+      const isInvestmentPeriod = year <= investmentPeriod;
+      // Higher expenses during investment period
+      const rate = isInvestmentPeriod ? expenseRate : expenseRate * 0.4;
+      const expense = fundSize * rate;
+      totalExpenses += expense;
+
+      yearlyExpenses.push({
+        year,
+        expense,
+        cumulative: totalExpenses,
+        isInvestmentPeriod
+      });
+    }
+
+    const avgAnnualExpense = totalExpenses / fundLife;
+    const investmentPeriodExpenses = yearlyExpenses
+      .filter(y => y.isInvestmentPeriod)
+      .reduce((sum, y) => sum + y.expense, 0);
+    const harvestPeriodExpenses = totalExpenses - investmentPeriodExpenses;
+
+    return {
+      categories,
+      totalExpenses,
+      avgAnnualExpense,
+      investmentPeriodExpenses,
+      harvestPeriodExpenses,
+      yearlyExpenses,
+      expenseAsPercentOfCommitment: (totalExpenses / fundSize) * 100
+    };
+  }, [fundSize, investmentPeriod, fundLife, expenseRate]);
+
+  return (
+    <section className="content-section">
+      <h2>Fund Expenses: The Hidden Layer</h2>
+
+      <p>
+        Beyond management fees and carry, funds incur <strong>operating expenses</strong> that
+        are typically charged directly to the fund (and thus to LPs). These costs are often
+        overlooked in high-level fee discussions, but they can add up to a meaningful drag
+        on returns—especially during the investment period.
+      </p>
+
+      <p>
+        During the investment period, fund expenses commonly run at <strong>40-60 basis points
+        annually</strong> of committed capital. This covers the costs of sourcing deals,
+        conducting due diligence, legal work, and fund administration. After the investment
+        period, expenses typically decline to 15-25 bps as activity shifts from deal-making
+        to portfolio management.
+      </p>
+
+      <div className="interactive-block">
+        <div className="block-header">
+          <span className="block-title">Expense Breakdown</span>
+          <span className="block-subtitle">Typical allocation of fund operating expenses</span>
+        </div>
+
+        <div className="expense-categories">
+          {expenseData.categories.map((cat, i) => (
+            <div key={i} className="expense-category">
+              <div className="expense-bar-container">
+                <div
+                  className="expense-bar"
+                  style={{
+                    width: `${cat.percent}%`,
+                    backgroundColor: cat.color
+                  }}
+                />
+                <span className="expense-percent">{cat.percent}%</span>
+              </div>
+              <div className="expense-info">
+                <span className="expense-name">{cat.name}</span>
+                <span className="expense-desc">{cat.description}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="sliders-grid" style={{ marginTop: '24px' }}>
+          <Slider
+            value={fundSize}
+            onChange={setFundSize}
+            min={100}
+            max={2000}
+            step={50}
+            label="Fund Size"
+            format={(v) => formatCurrency(v * 1e6, 0)}
+          />
+          <Slider
+            value={expenseRate}
+            onChange={setExpenseRate}
+            min={0.002}
+            max={0.008}
+            step={0.0005}
+            label="Expense Rate (Inv. Period)"
+            format={(v) => `${(v * 10000).toFixed(0)} bps`}
+            accent="#FF8E53"
+          />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard
+            label="Total Fund Expenses"
+            value={formatCurrency(expenseData.totalExpenses * 1e6, 0)}
+            subtext={`${expenseData.expenseAsPercentOfCommitment.toFixed(1)}% of commitment`}
+            accent="#FF8E53"
+          />
+          <MetricCard
+            label="Investment Period"
+            value={formatCurrency(expenseData.investmentPeriodExpenses * 1e6, 0)}
+            subtext={`~${(expenseRate * 10000).toFixed(0)} bps annually`}
+            accent="#FF8E53"
+          />
+          <MetricCard
+            label="Harvest Period"
+            value={formatCurrency(expenseData.harvestPeriodExpenses * 1e6, 0)}
+            subtext={`~${(expenseRate * 0.4 * 10000).toFixed(0)} bps annually`}
+            accent="#888"
+          />
+        </div>
+      </div>
+
+      <h3>What Expenses Include</h3>
+
+      <p>
+        <strong>Legal & Compliance:</strong> Fund formation documents, subscription agreements,
+        transaction documentation for each deal, regulatory filings, and ongoing compliance work.
+        This is often the largest expense category.
+      </p>
+
+      <p>
+        <strong>Accounting & Administration:</strong> Annual audits, tax preparation and K-1
+        generation, fund administration services, and investor reporting. These are largely
+        fixed costs that don't scale with fund size.
+      </p>
+
+      <p>
+        <strong>Due Diligence:</strong> Third-party accounting (quality of earnings), market
+        studies, technical assessments, environmental reviews, and other deal-related
+        investigations. These costs vary significantly by deal complexity.
+      </p>
+
+      <p>
+        <strong>Broken Deal Costs:</strong> When a deal doesn't close, the fund (not the GP)
+        typically bears the due diligence and legal costs incurred. For active deal-makers,
+        this can be a meaningful expense category.
+      </p>
+
+      <div className="callout">
+        <div className="callout-icon">💡</div>
+        <div className="callout-content">
+          <strong>Negotiation opportunity:</strong> Some LPAs cap total expenses as a percentage
+          of committed capital or require GP co-investment in expenses above a threshold.
+          Look for "expense cap" provisions in side letter negotiations.
+        </div>
+      </div>
+
+      <h3>Expenses vs. Management Fees</h3>
+
+      <p>
+        The distinction matters for alignment. Management fees go to the GP to run their
+        business—salaries, office space, back-office infrastructure. Expenses are
+        <em> fund-level costs</em> that the GP incurs on behalf of the partnership.
+      </p>
+
+      <p>
+        In theory, this creates better alignment: the GP pays for their operations out of
+        a fixed fee, while variable deal costs are shared with LPs. In practice, the
+        line can blur—watch for broad expense definitions that shift costs from the GP's
+        P&L to the fund.
+      </p>
     </section>
   );
 };
@@ -3211,6 +3435,63 @@ export default function App() {
           color: #4ECDC4;
         }
 
+        /* Expense Categories */
+        .expense-categories {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+
+        .expense-category {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+        }
+
+        .expense-bar-container {
+          width: 120px;
+          height: 24px;
+          background: #1a1a2e;
+          border-radius: 4px;
+          position: relative;
+          overflow: hidden;
+          flex-shrink: 0;
+        }
+
+        .expense-bar {
+          height: 100%;
+          border-radius: 4px;
+          transition: width 0.3s ease;
+        }
+
+        .expense-percent {
+          position: absolute;
+          right: 8px;
+          top: 50%;
+          transform: translateY(-50%);
+          font-family: 'SF Mono', 'Monaco', monospace;
+          font-size: 11px;
+          color: #fff;
+          font-weight: 500;
+        }
+
+        .expense-info {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .expense-name {
+          font-size: 13px;
+          font-weight: 500;
+          color: #fff;
+        }
+
+        .expense-desc {
+          font-size: 11px;
+          color: #666;
+        }
+
         /* Conclusion */
         .conclusion {
           border-top: 1px solid #1a1a2e;
@@ -3278,6 +3559,7 @@ export default function App() {
       <MasterDashboard />
       <IntroSection />
       <ManagementFeeSection />
+      <ExpensesSection />
       <CarrySection />
       <WaterfallComparisonSection />
       <FeeTradeoffSection />
