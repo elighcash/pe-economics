@@ -462,48 +462,191 @@ const Header = () => (
 );
 
 // ============================================================================
+// BASE CURVE DATA - Quarterly LP net returns for a typical 2.0x net fund
+// Source: Industry benchmark data, 2% mgmt fee, 20% carry, 50bps expenses
+// ============================================================================
+
+const BASE_CURVE = [
+  { q: 1, drawdown: 0.0375, dpi: 0.000, rvpi: 0.940 },
+  { q: 2, drawdown: 0.0750, dpi: 0.000, rvpi: 0.940 },
+  { q: 3, drawdown: 0.1125, dpi: 0.000, rvpi: 0.940 },
+  { q: 4, drawdown: 0.1500, dpi: 0.000, rvpi: 0.940 },
+  { q: 5, drawdown: 0.2125, dpi: 0.000, rvpi: 0.941 },
+  { q: 6, drawdown: 0.2750, dpi: 0.000, rvpi: 0.943 },
+  { q: 7, drawdown: 0.3375, dpi: 0.000, rvpi: 0.944 },
+  { q: 8, drawdown: 0.4000, dpi: 0.000, rvpi: 0.945 },
+  { q: 9, drawdown: 0.4500, dpi: 0.001, rvpi: 0.947 },
+  { q: 10, drawdown: 0.5000, dpi: 0.002, rvpi: 0.948 },
+  { q: 11, drawdown: 0.5500, dpi: 0.003, rvpi: 0.949 },
+  { q: 12, drawdown: 0.6000, dpi: 0.004, rvpi: 0.951 },
+  { q: 13, drawdown: 0.6375, dpi: 0.008, rvpi: 0.952 },
+  { q: 14, drawdown: 0.6750, dpi: 0.012, rvpi: 0.953 },
+  { q: 15, drawdown: 0.7125, dpi: 0.017, rvpi: 0.952 },
+  { q: 16, drawdown: 0.7500, dpi: 0.023, rvpi: 0.954 },
+  { q: 17, drawdown: 0.7750, dpi: 0.027, rvpi: 0.957 },
+  { q: 18, drawdown: 0.8000, dpi: 0.040, rvpi: 0.960 },
+  { q: 19, drawdown: 0.8250, dpi: 0.056, rvpi: 0.956 },
+  { q: 20, drawdown: 0.8500, dpi: 0.074, rvpi: 0.954 },
+  { q: 21, drawdown: 0.8750, dpi: 0.098, rvpi: 0.953 },
+  { q: 22, drawdown: 0.9000, dpi: 0.126, rvpi: 0.950 },
+  { q: 23, drawdown: 0.9250, dpi: 0.158, rvpi: 0.941 },
+  { q: 24, drawdown: 0.9500, dpi: 0.192, rvpi: 0.930 },
+  { q: 25, drawdown: 0.9625, dpi: 0.237, rvpi: 0.921 },
+  { q: 26, drawdown: 0.9750, dpi: 0.282, rvpi: 0.910 },
+  { q: 27, drawdown: 0.9875, dpi: 0.329, rvpi: 0.894 },
+  { q: 28, drawdown: 1.0000, dpi: 0.380, rvpi: 0.873 },
+  { q: 29, drawdown: 1.0000, dpi: 0.446, rvpi: 0.851 },
+  { q: 30, drawdown: 1.0000, dpi: 0.515, rvpi: 0.827 },
+  { q: 31, drawdown: 1.0000, dpi: 0.589, rvpi: 0.796 },
+  { q: 32, drawdown: 1.0000, dpi: 0.666, rvpi: 0.765 },
+  { q: 33, drawdown: 1.0000, dpi: 0.747, rvpi: 0.731 },
+  { q: 34, drawdown: 1.0000, dpi: 0.831, rvpi: 0.695 },
+  { q: 35, drawdown: 1.0000, dpi: 0.920, rvpi: 0.653 },
+  { q: 36, drawdown: 1.0000, dpi: 1.013, rvpi: 0.612 },
+  { q: 37, drawdown: 1.0000, dpi: 1.092, rvpi: 0.572 },
+  { q: 38, drawdown: 1.0000, dpi: 1.173, rvpi: 0.528 },
+  { q: 39, drawdown: 1.0000, dpi: 1.259, rvpi: 0.485 },
+  { q: 40, drawdown: 1.0000, dpi: 1.350, rvpi: 0.444 },
+  { q: 41, drawdown: 1.0000, dpi: 1.406, rvpi: 0.405 },
+  { q: 42, drawdown: 1.0000, dpi: 1.460, rvpi: 0.362 },
+  { q: 43, drawdown: 1.0000, dpi: 1.517, rvpi: 0.325 },
+  { q: 44, drawdown: 1.0000, dpi: 1.573, rvpi: 0.291 },
+  { q: 45, drawdown: 1.0000, dpi: 1.629, rvpi: 0.263 },
+  { q: 46, drawdown: 1.0000, dpi: 1.684, rvpi: 0.234 },
+  { q: 47, drawdown: 1.0000, dpi: 1.741, rvpi: 0.208 },
+  { q: 48, drawdown: 1.0000, dpi: 1.797, rvpi: 0.182 },
+  { q: 49, drawdown: 1.0000, dpi: 1.835, rvpi: 0.156 },
+  { q: 50, drawdown: 1.0000, dpi: 1.872, rvpi: 0.130 },
+  { q: 51, drawdown: 1.0000, dpi: 1.910, rvpi: 0.104 },
+  { q: 52, drawdown: 1.0000, dpi: 1.948, rvpi: 0.078 },
+  { q: 53, drawdown: 1.0000, dpi: 1.968, rvpi: 0.052 },
+  { q: 54, drawdown: 1.0000, dpi: 1.981, rvpi: 0.026 },
+  { q: 55, drawdown: 1.0000, dpi: 1.995, rvpi: 0.009 },
+  { q: 56, drawdown: 1.0000, dpi: 2.000, rvpi: 0.000 },
+];
+
+// Calculate IRR from cash flows using Newton-Raphson method
+const calculateIRR = (cashFlows, periodsPerYear = 4) => {
+  // cashFlows: array of { period, amount } where negative = outflow, positive = inflow
+  const npv = (rate) => {
+    return cashFlows.reduce((sum, cf) => {
+      return sum + cf.amount / Math.pow(1 + rate, cf.period / periodsPerYear);
+    }, 0);
+  };
+
+  const npvDerivative = (rate) => {
+    return cashFlows.reduce((sum, cf) => {
+      const t = cf.period / periodsPerYear;
+      return sum - (t * cf.amount) / Math.pow(1 + rate, t + 1);
+    }, 0);
+  };
+
+  let rate = 0.15; // Initial guess
+  for (let i = 0; i < 100; i++) {
+    const npvValue = npv(rate);
+    const derivative = npvDerivative(rate);
+    if (Math.abs(derivative) < 1e-10) break;
+    const newRate = rate - npvValue / derivative;
+    if (Math.abs(newRate - rate) < 1e-8) break;
+    rate = newRate;
+  }
+  return rate;
+};
+
+// ============================================================================
 // MASTER DASHBOARD - The Big Picture
 // ============================================================================
 
 const MasterDashboard = () => {
-  // All the key inputs
+  // All the key inputs - base case: 2% mgmt, 20% carry, 50bps expenses = 2.0x net, ~15% IRR
   const [fundSize, setFundSize] = useState(500);
   const [mgmtFeeRate, setMgmtFeeRate] = useState(0.02);
   const [expenseRate, setExpenseRate] = useState(0.005); // 50bps during investment period
   const [carryRate, setCarryRate] = useState(0.20);
   const [hurdleRate, setHurdleRate] = useState(0.08);
-  const [grossMultiple, setGrossMultiple] = useState(2.0);
-  const [fundLife, setFundLife] = useState(10);
-  const [investmentPeriod, setInvestmentPeriod] = useState(5);
-  const [waterfallType, setWaterfallType] = useState('european');
+  const [netMultipleTarget, setNetMultipleTarget] = useState(2.0); // This scales the base curve
+  const [fundLife, setFundLife] = useState(14); // 14 years = 56 quarters
+  const [investmentPeriod, setInvestmentPeriod] = useState(7); // 7 years = 28 quarters to full drawdown
 
-  // Calculate everything
+  // Calculate everything using base curve data
   const calculations = useMemo(() => {
-    // Management fees and expenses calculation
+    // Scale factor: how much to adjust the base 2.0x curve
+    const baseNetMultiple = 2.0;
+    const multipleScaleFactor = netMultipleTarget / baseNetMultiple;
+
+    // Build quarterly cash flow data from base curve
+    const quarterlyData = BASE_CURVE.map((row, i) => {
+      const prevRow = i > 0 ? BASE_CURVE[i - 1] : { drawdown: 0, dpi: 0 };
+
+      // Incremental values this quarter
+      const capitalCall = (row.drawdown - prevRow.drawdown) * fundSize;
+      const distribution = (row.dpi - prevRow.dpi) * fundSize * multipleScaleFactor;
+
+      // Scale RVPI by the multiple factor (simplified - assumes proportional value growth)
+      const scaledRvpi = row.rvpi * multipleScaleFactor;
+      const nav = row.drawdown * fundSize * scaledRvpi;
+
+      // TVPI at this point
+      const tvpi = row.dpi * multipleScaleFactor + scaledRvpi;
+
+      return {
+        quarter: row.q,
+        year: row.q / 4,
+        capitalCall,
+        distribution,
+        cumulativeDrawdown: row.drawdown * fundSize,
+        cumulativeDPI: row.dpi * fundSize * multipleScaleFactor,
+        rvpiMultiple: scaledRvpi,
+        nav,
+        tvpi,
+        isInvestmentPeriod: row.q <= investmentPeriod * 4
+      };
+    });
+
+    // Calculate IRR from actual cash flows
+    const cashFlows = [];
+    quarterlyData.forEach((q) => {
+      if (q.capitalCall > 0) {
+        cashFlows.push({ period: q.quarter, amount: -q.capitalCall });
+      }
+      if (q.distribution > 0) {
+        cashFlows.push({ period: q.quarter, amount: q.distribution });
+      }
+    });
+
+    const netIRR = cashFlows.length > 2 ? calculateIRR(cashFlows, 4) : 0;
+
+    // Total distributions and net multiple
+    const totalDistributions = quarterlyData[quarterlyData.length - 1].cumulativeDPI;
+    const netMultiple = totalDistributions / fundSize;
+    const netProfit = totalDistributions - fundSize;
+
+    // Calculate fees and expenses (annual basis)
     let totalMgmtFees = 0;
     let totalExpenses = 0;
     const yearlyData = [];
 
     for (let year = 1; year <= fundLife; year++) {
-      const isInvestmentPeriod = year <= investmentPeriod;
-      const rate = isInvestmentPeriod ? mgmtFeeRate : mgmtFeeRate * 0.75;
+      const isInvPeriod = year <= investmentPeriod;
+      const feeRate = isInvPeriod ? mgmtFeeRate : mgmtFeeRate * 0.75;
 
-      // Simplified: fees on committed during investment, on remaining after
+      // Fee basis: committed during investment, declining after based on realizations
       let feeBasis;
-      if (isInvestmentPeriod) {
+      if (isInvPeriod) {
         feeBasis = fundSize;
       } else {
-        // Declining basis as investments are realized
-        const realizationProgress = (year - investmentPeriod) / (fundLife - investmentPeriod);
-        feeBasis = fundSize * (1 - realizationProgress * 0.7);
+        // Use DPI curve to determine remaining basis
+        const quarterIndex = Math.min(year * 4 - 1, BASE_CURVE.length - 1);
+        const dpiAtQuarter = BASE_CURVE[quarterIndex].dpi * multipleScaleFactor;
+        const realizedPortion = Math.min(dpiAtQuarter / netMultiple, 0.9);
+        feeBasis = fundSize * (1 - realizedPortion);
       }
 
-      const fee = feeBasis * rate;
+      const fee = feeBasis * feeRate;
       totalMgmtFees += fee;
 
-      // Expenses: higher during investment period (deal sourcing, due diligence, legal)
-      // Lower during harvest period
-      const yearExpenseRate = isInvestmentPeriod ? expenseRate : expenseRate * 0.4;
+      // Expenses: higher during investment period
+      const yearExpenseRate = isInvPeriod ? expenseRate : expenseRate * 0.4;
       const expense = feeBasis * yearExpenseRate;
       totalExpenses += expense;
 
@@ -513,19 +656,24 @@ const MasterDashboard = () => {
         expense,
         cumulativeFees: totalMgmtFees,
         cumulativeExpenses: totalExpenses,
-        isInvestmentPeriod
+        isInvestmentPeriod: isInvPeriod
       });
     }
 
-    // Capital available for investment after fees and expenses
-    const investableCapital = fundSize * 0.90; // ~10% reserved for fees + expenses during investment period
+    // Gross calculations: work backwards from net to estimate gross
+    // Net = Gross - Fees - Expenses - Carry
+    // For base case with 2/20/50bps: Gross ~2.5x yields Net 2.0x
+    const totalFeesAndExpenses = totalMgmtFees + totalExpenses;
 
-    // Gross value at exit
-    const grossValue = investableCapital * grossMultiple;
+    // Estimate gross from net (reverse engineer the fee drag)
+    // Assuming carry is ~20% of profit above hurdle
+    const estimatedGrossProfit = (netProfit + totalFeesAndExpenses) / (1 - carryRate * 0.8);
+    const grossValue = fundSize + estimatedGrossProfit;
+    const grossMultiple = grossValue / fundSize;
     const totalGrossProfit = grossValue - fundSize;
 
-    // Hurdle calculation
-    const avgHoldPeriod = fundLife * 0.6; // Average investment held ~60% of fund life
+    // Hurdle check
+    const avgHoldPeriod = fundLife * 0.6;
     const hurdleAmount = fundSize * (Math.pow(1 + hurdleRate, avgHoldPeriod) - 1);
     const hurdleCleared = totalGrossProfit > hurdleAmount;
 
@@ -535,28 +683,23 @@ const MasterDashboard = () => {
       carry = totalGrossProfit * carryRate;
     }
 
-    // Net calculations (after mgmt fees, expenses, and carry)
-    const totalFeesAndExpenses = totalMgmtFees + totalExpenses;
-    const totalCosts = totalFeesAndExpenses + carry;
-    const netValue = grossValue - carry;
-    const netMultiple = netValue / fundSize;
-    const netProfit = netValue - fundSize;
-
-    // IRR approximations
+    // Gross IRR (approximate from gross multiple)
     const grossIRR = Math.pow(grossMultiple, 1 / avgHoldPeriod) - 1;
-    const netIRR = Math.pow(netMultiple, 1 / avgHoldPeriod) - 1;
 
-    // Fee drag (includes expenses)
+    // Total costs
+    const totalCosts = totalFeesAndExpenses + carry;
+
+    // Fee drag as percentage of gross profit
     const feeDragPercent = totalGrossProfit > 0 ? (totalCosts / totalGrossProfit) * 100 : 0;
 
-    // Breakdown for visualization
+    // Breakdown for waterfall visualization
     const breakdown = [
-      { label: 'LP Contribution', value: fundSize, color: '#4ECDC4', cumulative: fundSize },
-      { label: 'Gross Profit', value: totalGrossProfit, color: '#6BCB77', cumulative: fundSize + totalGrossProfit },
-      { label: 'Mgmt Fees', value: -totalMgmtFees, color: '#FF6B6B', cumulative: fundSize + totalGrossProfit - totalMgmtFees },
-      { label: 'Expenses', value: -totalExpenses, color: '#FF8E53', cumulative: fundSize + totalGrossProfit - totalMgmtFees - totalExpenses },
-      { label: 'GP Carry', value: -carry, color: '#FFD93D', cumulative: netValue - totalExpenses },
-      { label: 'LP Net', value: netValue - totalExpenses, color: '#4ECDC4', cumulative: netValue - totalExpenses },
+      { label: 'LP Capital', value: fundSize, color: '#4ECDC4' },
+      { label: 'Gross Profit', value: totalGrossProfit, color: '#6BCB77' },
+      { label: 'Mgmt Fees', value: totalMgmtFees, color: '#FF6B6B', isDeduction: true },
+      { label: 'Expenses', value: totalExpenses, color: '#FF8E53', isDeduction: true },
+      { label: 'GP Carry', value: carry, color: '#FFD93D', isDeduction: true },
+      { label: 'LP Net', value: totalDistributions, color: '#4ECDC4' },
     ];
 
     return {
@@ -566,19 +709,20 @@ const MasterDashboard = () => {
       carry,
       totalCosts,
       grossValue,
-      netValue: netValue - totalExpenses,
+      netValue: totalDistributions,
       grossMultiple,
-      netMultiple: (netValue - totalExpenses) / fundSize,
+      netMultiple,
       grossIRR,
-      netIRR: Math.pow((netValue - totalExpenses) / fundSize, 1 / avgHoldPeriod) - 1,
+      netIRR,
       hurdleCleared,
       feeDragPercent,
       yearlyData,
+      quarterlyData,
       breakdown,
       totalGrossProfit,
-      netProfit: netValue - totalExpenses - fundSize
+      netProfit
     };
-  }, [fundSize, mgmtFeeRate, expenseRate, carryRate, hurdleRate, grossMultiple, fundLife, investmentPeriod, waterfallType]);
+  }, [fundSize, mgmtFeeRate, expenseRate, carryRate, hurdleRate, netMultipleTarget, fundLife, investmentPeriod]);
 
   // Canvas-based fund lifecycle visualization
   const lifecycleCanvasRef = useRef(null);
@@ -603,35 +747,18 @@ const MasterDashboard = () => {
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = height - padding.top - padding.bottom;
 
-    // Calculate yearly NAV progression
-    const navData = [];
-    let currentNav = 0;
-    let cumulativeFees = 0;
+    // Use quarterly data from calculations, sample every 4 quarters for yearly display
+    const quarterlyData = calculations.quarterlyData || [];
+    const totalQuarters = quarterlyData.length;
 
-    for (let year = 0; year <= fundLife; year++) {
-      if (year === 0) {
-        navData.push({ year, nav: 0, contributed: 0, fees: 0 });
-        continue;
-      }
-
-      // Capital calls during investment period
-      const contributed = year <= investmentPeriod
-        ? (year / investmentPeriod) * fundSize
-        : fundSize;
-
-      // NAV growth (simplified s-curve)
-      const growthProgress = year / fundLife;
-      const growthMultiplier = 1 + (grossMultiple - 1) * Math.pow(growthProgress, 0.8);
-      const nav = contributed * growthMultiplier * 0.92; // Account for fee drag
-
-      // Cumulative fees
-      const yearFee = calculations.yearlyData[year - 1]?.fee || 0;
-      cumulativeFees += yearFee;
-
-      navData.push({ year, nav, contributed, fees: cumulativeFees });
-    }
-
-    const maxValue = Math.max(...navData.map(d => Math.max(d.nav, d.contributed))) * 1.15;
+    // Find max value for scaling
+    const maxValue = Math.max(
+      ...quarterlyData.map(q => Math.max(
+        q.cumulativeDrawdown,
+        q.nav + q.cumulativeDPI,
+        q.cumulativeDPI
+      ))
+    ) * 1.15;
 
     // Draw grid
     ctx.strokeStyle = '#1a1a2e';
@@ -650,39 +777,40 @@ const MasterDashboard = () => {
       ctx.fillText(formatCurrency(val * 1e6, 0), padding.left - 10, y + 4);
     }
 
-    // Draw contributed capital line
+    // Draw contributed capital line (drawdown)
     ctx.strokeStyle = '#4ECDC4';
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
-    navData.forEach((d, i) => {
-      const x = padding.left + (d.year / fundLife) * chartWidth;
-      const y = padding.top + (1 - d.contributed / maxValue) * chartHeight;
+    quarterlyData.forEach((q, i) => {
+      const x = padding.left + (q.quarter / totalQuarters) * chartWidth;
+      const y = padding.top + (1 - q.cumulativeDrawdown / maxValue) * chartHeight;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Draw NAV line (gross)
+    // Draw NAV + Distributions line (total value)
     ctx.strokeStyle = '#6BCB77';
     ctx.lineWidth = 3;
     ctx.beginPath();
-    navData.forEach((d, i) => {
-      const x = padding.left + (d.year / fundLife) * chartWidth;
-      const y = padding.top + (1 - d.nav / maxValue) * chartHeight;
+    quarterlyData.forEach((q, i) => {
+      const x = padding.left + (q.quarter / totalQuarters) * chartWidth;
+      const totalValue = q.nav + q.cumulativeDPI;
+      const y = padding.top + (1 - totalValue / maxValue) * chartHeight;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
 
-    // Draw fee accumulation area
-    ctx.fillStyle = 'rgba(255, 107, 107, 0.3)';
+    // Draw distributions area (DPI)
+    ctx.fillStyle = 'rgba(78, 205, 196, 0.2)';
     ctx.beginPath();
     ctx.moveTo(padding.left, padding.top + chartHeight);
-    navData.forEach((d) => {
-      const x = padding.left + (d.year / fundLife) * chartWidth;
-      const y = padding.top + chartHeight - (d.fees / maxValue) * chartHeight;
+    quarterlyData.forEach((q) => {
+      const x = padding.left + (q.quarter / totalQuarters) * chartWidth;
+      const y = padding.top + (1 - q.cumulativeDPI / maxValue) * chartHeight;
       ctx.lineTo(x, y);
     });
     ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
@@ -690,7 +818,8 @@ const MasterDashboard = () => {
     ctx.fill();
 
     // Investment period marker
-    const ipX = padding.left + (investmentPeriod / fundLife) * chartWidth;
+    const ipQuarter = investmentPeriod * 4;
+    const ipX = padding.left + (ipQuarter / totalQuarters) * chartWidth;
     ctx.strokeStyle = '#FFD93D';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
@@ -703,11 +832,12 @@ const MasterDashboard = () => {
     ctx.fillStyle = '#FFD93D';
     ctx.font = '10px Helvetica Neue';
     ctx.textAlign = 'center';
-    ctx.fillText('Investment Period Ends', ipX, padding.top - 10);
+    ctx.fillText('Inv. Period Ends', ipX, padding.top - 10);
 
-    // X-axis labels
-    for (let year = 0; year <= fundLife; year += 2) {
-      const x = padding.left + (year / fundLife) * chartWidth;
+    // X-axis labels (years)
+    const totalYears = Math.ceil(totalQuarters / 4);
+    for (let year = 0; year <= totalYears; year += 2) {
+      const x = padding.left + (year * 4 / totalQuarters) * chartWidth;
       ctx.fillStyle = '#666';
       ctx.font = '11px Helvetica Neue';
       ctx.textAlign = 'center';
@@ -728,19 +858,19 @@ const MasterDashboard = () => {
     ctx.fillStyle = '#888';
     ctx.font = '11px Helvetica Neue';
     ctx.textAlign = 'left';
-    ctx.fillText('Contributed Capital', padding.left + 22, legendY + 5);
+    ctx.fillText('Capital Calls', padding.left + 22, legendY + 5);
 
     ctx.fillStyle = '#6BCB77';
-    ctx.fillRect(padding.left + 150, legendY, 15, 3);
+    ctx.fillRect(padding.left + 120, legendY, 15, 3);
     ctx.fillStyle = '#888';
-    ctx.fillText('NAV (Gross)', padding.left + 172, legendY + 5);
+    ctx.fillText('NAV + DPI', padding.left + 142, legendY + 5);
 
-    ctx.fillStyle = 'rgba(255, 107, 107, 0.5)';
-    ctx.fillRect(padding.left + 270, legendY - 3, 15, 10);
+    ctx.fillStyle = 'rgba(78, 205, 196, 0.4)';
+    ctx.fillRect(padding.left + 230, legendY - 3, 15, 10);
     ctx.fillStyle = '#888';
-    ctx.fillText('Cumulative Fees', padding.left + 292, legendY + 5);
+    ctx.fillText('Distributions', padding.left + 252, legendY + 5);
 
-  }, [calculations, fundLife, investmentPeriod, grossMultiple, fundSize]);
+  }, [calculations, fundLife, investmentPeriod, fundSize]);
 
   // Waterfall canvas
   const waterfallCanvasRef = useRef(null);
@@ -932,14 +1062,14 @@ const MasterDashboard = () => {
           <div className="control-group">
             <div className="control-group-header">Performance</div>
             <Slider
-              value={grossMultiple}
-              onChange={setGrossMultiple}
-              min={0.5}
-              max={4.0}
+              value={netMultipleTarget}
+              onChange={setNetMultipleTarget}
+              min={1.0}
+              max={3.5}
               step={0.05}
-              label="Gross Multiple (TVPI)"
+              label="Net Multiple Target"
               format={(v) => `${v.toFixed(2)}x`}
-              accent="#6BCB77"
+              accent="#4ECDC4"
             />
           </div>
         </div>
