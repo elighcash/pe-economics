@@ -441,10 +441,22 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
 // SECTION COMPONENTS
 // ============================================================================
 
+const Header = () => (
+  <header className="site-header">
+    <div className="header-content">
+      <div className="header-logo">
+        <span className="logo-text">Pathway Capital</span>
+      </div>
+      <nav className="header-nav">
+        <span className="nav-tagline">Private Equity Research</span>
+      </nav>
+    </div>
+  </header>
+);
+
 const HeroSection = () => (
   <section className="hero-section">
     <div className="hero-content">
-      <div className="pathway-badge">Pathway Capital</div>
       <h1>The Economics of Private Equity</h1>
       <p className="hero-subtitle">
         An interactive exploration of fees, carry, and the journey from gross to net returns
@@ -1667,16 +1679,65 @@ export default function App() {
         }
 
         .pe-fees-app {
-          font-family: 'Georgia', 'Times New Roman', serif;
+          font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
           background: #0a0a0f;
           color: #d4d4d4;
           min-height: 100vh;
+          width: 100%;
           line-height: 1.7;
+        }
+
+        /* Header */
+        .site-header {
+          position: sticky;
+          top: 0;
+          z-index: 100;
+          background: rgba(10, 10, 15, 0.95);
+          backdrop-filter: blur(10px);
+          border-bottom: 1px solid #1a1a2e;
+          padding: 16px 40px;
+        }
+
+        .header-content {
+          max-width: 1200px;
+          margin: 0 auto;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+        }
+
+        .header-logo {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .logo-text {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 18px;
+          font-weight: 500;
+          letter-spacing: 2px;
+          text-transform: uppercase;
+          color: #4ECDC4;
+        }
+
+        .header-nav {
+          display: flex;
+          align-items: center;
+          gap: 24px;
+        }
+
+        .nav-tagline {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 12px;
+          color: #666;
+          letter-spacing: 1px;
+          text-transform: uppercase;
         }
 
         /* Hero Section */
         .hero-section {
-          padding: 80px 20px;
+          padding: 80px 40px;
           text-align: center;
           background: linear-gradient(180deg, #0f0f1a 0%, #0a0a0f 100%);
           border-bottom: 1px solid #1a1a2e;
@@ -1737,9 +1798,9 @@ export default function App() {
 
         /* Content Sections */
         .content-section {
-          max-width: 720px;
+          max-width: 900px;
           margin: 0 auto;
-          padding: 60px 24px;
+          padding: 60px 40px;
         }
 
         .content-section h2 {
@@ -2426,6 +2487,7 @@ export default function App() {
         }
       `}</style>
 
+      <Header />
       <HeroSection />
       <IntroSection />
       <ManagementFeeSection />
