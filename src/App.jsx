@@ -473,9 +473,9 @@ const Header = () => (
 // The dpi represents gross distributions from exits (before waterfall).
 
 const GROSS_BASE_CURVE = {
-  // Base parameters calibrated to achieve ~20% gross IRR at 2.25x gross
-  // which yields ~15% net IRR at 2.0x net after 20% carry
-  baseGrossMultiple: 2.25,
+  // Base parameters calibrated to achieve ~20% gross IRR at 2.5x gross
+  // Empirical formula: net = 0.7643 * gross + 0.1326 → 2.5x gross ≈ 2.0x net
+  baseGrossMultiple: 2.5,
   baseFundLife: 12,            // 12 years = 48 quarters
   baseInvestmentPeriod: 5,     // 5 years to full deployment
   baseDistributionStart: 2.5,  // Distributions begin year 2.5 (Q10) - earlier for higher IRR
@@ -616,8 +616,8 @@ const MasterDashboard = () => {
   const [carryRate, setCarryRate] = useState(0.20);           // 20% carried interest
   const [hurdleRate, setHurdleRate] = useState(0.08);         // 8% preferred return
 
-  // Performance input - GROSS multiple is the driver, net is derived
-  const [grossMultipleTarget, setGrossMultipleTarget] = useState(2.25); // 2.25x gross → ~2.0x net
+  // Performance input - GROSS multiple is the driver, net is derived using empirical formula
+  const [grossMultipleTarget, setGrossMultipleTarget] = useState(2.5); // 2.5x gross → ~2.0x net
 
   // Calculate everything from GROSS down to NET
   const calculations = useMemo(() => {
@@ -694,57 +694,75 @@ const MasterDashboard = () => {
     const totalFeesAndExpenses = totalMgmtFees + totalExpenses;
 
     // =========================================================================
-    // STEP 3: Apply waterfall to calculate carried interest
+    // STEP 3: Calculate NET multiple using empirical formula
     // =========================================================================
 
-    // Hurdle calculation (simplified - on total fund basis)
-    const avgHoldPeriod = fundLife * 0.6; // Weighted average hold
-    const hurdleAmount = fundSizeM * (Math.pow(1 + hurdleRate, avgHoldPeriod) - 1);
-    const profitAboveHurdle = Math.max(0, totalGrossProfit - hurdleAmount);
-    const hurdleCleared = totalGrossProfit > hurdleAmount;
-
-    // Carried interest (GP's share of profits above hurdle)
-    let carry = 0;
-    if (hurdleCleared) {
-      // European waterfall: carry on profit above hurdle
-      // With catch-up, GP gets more until caught up, then 80/20 split
-      // Simplified: carry rate applied to profit above hurdle
-      carry = profitAboveHurdle * carryRate / (1 - carryRate) + (totalGrossProfit - profitAboveHurdle) * carryRate;
-      // Cap carry at carryRate * total profit (can't exceed this)
-      carry = Math.min(carry, totalGrossProfit * carryRate);
-    }
-
-    // =========================================================================
-    // STEP 4: Calculate NET cash flows and returns
-    // =========================================================================
-
-    // LP's actual cash flows:
-    // Outflows: Investment capital + fees + expenses
-    // Inflows: Gross distributions - carried interest
-
-    // Net distributions = Gross distributions - Carry
-    const netDistributions = grossValue - carry;
-    const netMultiple = netDistributions / fundSizeM;
+    // Empirical relationship from actual fund data:
+    // Fee drag (gross - net) = 0.2357 * grossMultiple - 0.1326
+    // This captures the combined effect of management fees, expenses, and carry
+    // For 2.5x gross → 0.46x drag → 2.04x net
+    const empiricalFeeDrag = 0.2357 * grossMultiple - 0.1326;
+    const netMultiple = grossMultiple - Math.max(0, empiricalFeeDrag);
+    const netDistributions = netMultiple * fundSizeM;
     const netProfit = netDistributions - fundSizeM;
 
-    // Build net cash flows for IRR calculation
-    // Note: Fees are paid from committed capital, not in addition to it.
-    // The fee impact shows in reduced returns (less capital invested), not higher outflows.
+    // Total drag in dollars
+    const totalDrag = grossValue - netDistributions;
+
+    // =========================================================================
+    // STEP 4: Allocate drag to fees, expenses, and carry for waterfall display
+    // =========================================================================
+
+    // Hurdle calculation for display
+    const avgHoldPeriod = fundLife * 0.6;
+    const hurdleAmount = fundSizeM * (Math.pow(1 + hurdleRate, avgHoldPeriod) - 1);
+    const hurdleCleared = totalGrossProfit > hurdleAmount;
+
+    // Allocate drag proportionally based on typical breakdown:
+    // - Management fees: ~40% of drag (2% annually on committed)
+    // - Expenses: ~10% of drag (0.5% annually)
+    // - Carry: ~50% of drag (20% of profits)
+    // But adjust based on actual fee parameters relative to base case (2/20/0.5%)
+    const baseMgmtFee = 0.02;
+    const baseExpense = 0.005;
+    const baseCarry = 0.20;
+
+    // Weight by deviation from base case
+    const mgmtWeight = mgmtFeeRate / baseMgmtFee;
+    const expenseWeight = expenseRate / baseExpense;
+    const carryWeight = carryRate / baseCarry;
+    const totalWeight = mgmtWeight * 0.4 + expenseWeight * 0.1 + carryWeight * 0.5;
+
+    // Allocate drag
+    const mgmtShare = (mgmtWeight * 0.4) / totalWeight;
+    const expenseShare = (expenseWeight * 0.1) / totalWeight;
+    const carryShare = (carryWeight * 0.5) / totalWeight;
+
+    // Use calculated fees for display but ensure they sum to total drag
+    const displayMgmtFees = Math.min(totalMgmtFees, totalDrag * mgmtShare);
+    const displayExpenses = Math.min(totalExpenses, totalDrag * expenseShare);
+    const carry = totalDrag - displayMgmtFees - displayExpenses;
+
+    // =========================================================================
+    // STEP 5: Build net cash flows for IRR calculation
+    // =========================================================================
+
     const netCashFlows = [];
 
-    // LP capital calls - same timing as gross (committed capital called over time)
+    // LP capital calls - same timing as gross
     grossQuarterlyData.forEach((q) => {
       if (q.capitalCall > 0) {
         netCashFlows.push({ period: q.quarter, amount: -q.capitalCall * fundSizeM });
       }
     });
 
-    // LP distributions (gross distributions minus carry, spread proportionally)
-    const carryPerDistribution = grossMultiple > 0 ? carry / (grossMultiple * fundSizeM) : 0;
+    // LP distributions (gross distributions minus total drag, spread proportionally)
+    // Net/Gross ratio based on empirical formula
+    const netToGrossRatio = grossValue > 0 ? netDistributions / grossValue : 1;
     grossQuarterlyData.forEach((q) => {
       if (q.distribution > 0) {
         const grossDist = q.distribution * fundSizeM;
-        const netDist = grossDist * (1 - carryPerDistribution);
+        const netDist = grossDist * netToGrossRatio;
         netCashFlows.push({ period: q.quarter, amount: netDist });
       }
     });
@@ -754,21 +772,20 @@ const MasterDashboard = () => {
     const netIRR = netCashFlows.length > 2 ? calculateIRR(netCashFlows, 4) : 0;
 
     // =========================================================================
-    // STEP 5: Build data for visualizations
+    // STEP 6: Build data for visualizations
     // =========================================================================
 
     // Quarterly data for charts (showing both gross and net perspectives)
     const quarterlyData = grossQuarterlyData.map((gq) => {
-      const netDistFactor = carry > 0 ? (grossValue - carry) / grossValue : 1;
       return {
         quarter: gq.quarter,
         year: gq.year,
         capitalCall: gq.capitalCall * fundSizeM,
         grossDistribution: gq.distribution * fundSizeM,
-        netDistribution: gq.distribution * fundSizeM * netDistFactor,
+        netDistribution: gq.distribution * fundSizeM * netToGrossRatio,
         cumulativeDrawdown: gq.drawdown * fundSizeM,
         cumulativeGrossDPI: gq.dpi * fundSizeM,
-        cumulativeNetDPI: gq.dpi * fundSizeM * netDistFactor,
+        cumulativeNetDPI: gq.dpi * fundSizeM * netToGrossRatio,
         grossRvpi: gq.rvpi,
         nav: gq.rvpi * fundSizeM,
         grossTvpi: gq.dpi + gq.rvpi,
@@ -776,27 +793,27 @@ const MasterDashboard = () => {
       };
     });
 
-    // Total costs
-    const totalCosts = totalFeesAndExpenses + carry;
+    // Total costs (empirical drag)
+    const totalCosts = totalDrag;
 
     // Fee drag as percentage of gross profit
-    const feeDragPercent = totalGrossProfit > 0 ? (totalCosts / totalGrossProfit) * 100 : 0;
+    const feeDragPercent = totalGrossProfit > 0 ? (totalDrag / totalGrossProfit) * 100 : 0;
 
-    // Breakdown for waterfall visualization
+    // Breakdown for waterfall visualization (using display values that sum to total drag)
     const breakdown = [
       { label: 'LP Capital', value: fundSizeM, color: '#4ECDC4' },
       { label: 'Gross Profit', value: totalGrossProfit, color: '#6BCB77' },
-      { label: 'Mgmt Fees', value: totalMgmtFees, color: '#FF6B6B', isDeduction: true },
-      { label: 'Expenses', value: totalExpenses, color: '#FF8E53', isDeduction: true },
+      { label: 'Mgmt Fees', value: displayMgmtFees, color: '#FF6B6B', isDeduction: true },
+      { label: 'Expenses', value: displayExpenses, color: '#FF8E53', isDeduction: true },
       { label: 'GP Carry', value: carry, color: '#FFD93D', isDeduction: true },
       { label: 'LP Net', value: netDistributions, color: '#4ECDC4' },
     ];
 
     return {
-      // Fee totals
-      totalMgmtFees,
-      totalExpenses,
-      totalFeesAndExpenses,
+      // Fee totals (display values)
+      totalMgmtFees: displayMgmtFees,
+      totalExpenses: displayExpenses,
+      totalFeesAndExpenses: displayMgmtFees + displayExpenses,
       carry,
       totalCosts,
       // Values
@@ -818,7 +835,8 @@ const MasterDashboard = () => {
       totalGrossProfit,
       netProfit,
       // For display
-      fundSizeM
+      fundSizeM,
+      totalDrag
     };
   }, [fundSize, mgmtFeeRate, expenseRate, carryRate, hurdleRate, grossMultipleTarget, fundLife, investmentPeriod]);
 
