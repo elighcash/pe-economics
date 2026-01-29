@@ -473,11 +473,12 @@ const Header = () => (
 // The dpi represents gross distributions from exits (before waterfall).
 
 const GROSS_BASE_CURVE = {
-  // Base parameters (normalized)
-  baseGrossMultiple: 2.5,      // 2.5x gross yields ~2.0x net after 2/20/50bps
+  // Base parameters calibrated to achieve ~20% gross IRR at 2.25x gross
+  // which yields ~15% net IRR at 2.0x net after 20% carry
+  baseGrossMultiple: 2.25,
   baseFundLife: 12,            // 12 years = 48 quarters
   baseInvestmentPeriod: 5,     // 5 years to full deployment
-  baseDistributionStart: 3,    // Distributions begin year 3 (Q13)
+  baseDistributionStart: 2.5,  // Distributions begin year 2.5 (Q10) - earlier for higher IRR
 
   // Capital deployment curve (S-curve shape, normalized 0-1)
   // Returns cumulative % deployed at given progress through investment period
@@ -490,12 +491,13 @@ const GROSS_BASE_CURVE = {
       : 1 - Math.pow(-2 * t + 2, 2) / 2;
   },
 
-  // Distribution curve (linear-ish with slight acceleration)
+  // Distribution curve - front-loaded to achieve higher IRR
   // Returns cumulative % of total distributions at given progress through distribution period
   getDistribution: (progress) => {
     const t = Math.max(0, Math.min(1, progress));
-    // Slightly accelerated distribution (more at end as exits compound)
-    return Math.pow(t, 0.9);
+    // Front-loaded distribution (exponent < 1 means more early, less late)
+    // 0.7 gives good IRR boost while keeping realistic shape
+    return Math.pow(t, 0.7);
   },
 
   // NAV curve - unrealized value as multiple of deployed capital
@@ -519,7 +521,10 @@ const GROSS_BASE_CURVE = {
 const generateQuarterlyData = (fundLife, investmentPeriod, grossMultiple) => {
   const totalQuarters = fundLife * 4;
   const investmentQuarters = investmentPeriod * 4;
-  const distributionStartQuarter = Math.max(investmentPeriod * 2, 12); // Start distributions mid-investment or Q12
+  // Scale distribution start proportionally to fund life
+  // Base: 2.5 years into a 12-year fund = 20.8% through
+  const distributionStartRatio = GROSS_BASE_CURVE.baseDistributionStart / GROSS_BASE_CURVE.baseFundLife;
+  const distributionStartQuarter = Math.max(Math.round(fundLife * distributionStartRatio * 4), 8);
   const distributionQuarters = totalQuarters - distributionStartQuarter + 1;
 
   const data = [];
