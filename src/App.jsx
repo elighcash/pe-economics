@@ -45,7 +45,7 @@ const Slider = ({ value, onChange, min, max, step = 0.01, label, format = (v) =>
           onChange={(e) => onChange(parseFloat(e.target.value))}
           className="slider-input"
           style={{
-            background: `linear-gradient(to right, ${accent} 0%, ${accent} ${percentage}%, #2a2a3a ${percentage}%, #2a2a3a 100%)`
+            background: `linear-gradient(to right, ${accent} 0%, ${accent} ${percentage}%, #c2cfde ${percentage}%, #c2cfde 100%)`
           }}
         />
       </div>
@@ -135,13 +135,13 @@ const FlowDiagram = ({ stages, height = 300 }) => {
       ctx.fillRect(x - 30, y, 60, barHeight);
 
       // Draw label
-      ctx.fillStyle = '#888';
+      ctx.fillStyle = '#5d6f89';
       ctx.font = '12px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText(stage.label, x, h - 20);
 
       // Draw value
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = '#13233a';
       ctx.font = 'bold 14px system-ui';
       ctx.fillText(stage.valueLabel || formatCurrency(stage.value, 1), x, y - 10);
 
@@ -151,7 +151,7 @@ const FlowDiagram = ({ stages, height = 300 }) => {
         const nextBarHeight = (nextStage.value / maxValue) * (h - 80);
         const nextY = h - 40 - nextBarHeight;
 
-        ctx.strokeStyle = '#444';
+        ctx.strokeStyle = '#8a99af';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(x + 35, y + barHeight / 2);
@@ -165,7 +165,7 @@ const FlowDiagram = ({ stages, height = 300 }) => {
         ctx.lineTo(x + stageWidth - 45, nextY + nextBarHeight / 2 - 8);
         ctx.lineTo(x + stageWidth - 45, nextY + nextBarHeight / 2 + 8);
         ctx.closePath();
-        ctx.fillStyle = '#444';
+        ctx.fillStyle = '#8a99af';
         ctx.fill();
       }
     });
@@ -209,7 +209,7 @@ const WaterfallChart = ({ data, height = 280 }) => {
 
       // Connector line from previous bar
       if (i > 0) {
-        ctx.strokeStyle = '#333';
+        ctx.strokeStyle = '#7f8ea5';
         ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
         ctx.beginPath();
@@ -228,14 +228,14 @@ const WaterfallChart = ({ data, height = 280 }) => {
       }
 
       // Draw value label
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = '#13233a';
       ctx.font = 'bold 11px system-ui';
       ctx.textAlign = 'center';
       const valueY = d.isIncrease ? barTop - 8 : prevTop - 8;
       ctx.fillText(d.valueLabel, x + barWidth / 2, barTop - 8);
 
       // Draw category label
-      ctx.fillStyle = '#888';
+      ctx.fillStyle = '#5d6f89';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'center';
 
@@ -299,7 +299,7 @@ const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
       ctx.stroke();
 
       const val = maxValue - (i / 4) * range;
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = '#6f819d';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'right';
       ctx.fillText(formatCurrency(val, 0), padding.left - 8, y + 4);
@@ -330,7 +330,7 @@ const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
       ctx.fill();
 
       // Year label
-      ctx.fillStyle = '#888';
+      ctx.fillStyle = '#5d6f89';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText(d.label, x, h - padding.bottom + 20);
@@ -369,7 +369,7 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
     // Draw zero line if applicable
     if (minValue < 0) {
       const zeroY = padding.top + (maxValue / range) * chartHeight;
-      ctx.strokeStyle = '#444';
+      ctx.strokeStyle = '#8a99af';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(padding.left, zeroY);
@@ -378,7 +378,7 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
     }
 
     // Draw grid
-    ctx.strokeStyle = '#1a1a2e';
+    ctx.strokeStyle = '#dfe7f2';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const y = padding.top + (i / 4) * chartHeight;
@@ -388,7 +388,7 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
       ctx.stroke();
 
       const val = maxValue - (i / 4) * range;
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = '#6f819d';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'right';
       ctx.fillText(formatCurrency(val, 0), padding.left - 8, y + 4);
@@ -421,20 +421,20 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
     // Legend
     ctx.fillStyle = colorA;
     ctx.fillRect(padding.left, 10, 20, 3);
-    ctx.fillStyle = '#aaa';
+    ctx.fillStyle = '#4f6078';
     ctx.font = '11px system-ui';
     ctx.textAlign = 'left';
     ctx.fillText(labelA, padding.left + 28, 14);
 
     ctx.fillStyle = colorB;
     ctx.fillRect(padding.left + 120, 10, 20, 3);
-    ctx.fillStyle = '#aaa';
+    ctx.fillStyle = '#4f6078';
     ctx.fillText(labelB, padding.left + 148, 14);
 
     // X-axis labels
     for (let i = 0; i < seriesA.length; i++) {
       const x = padding.left + (i / (seriesA.length - 1)) * chartWidth;
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = '#6f819d';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText(`Yr ${i}`, x, h - padding.bottom + 20);
@@ -464,7 +464,7 @@ const Header = () => (
 // ============================================================================
 // GROSS BASE CURVE - Underlying investment performance BEFORE fees/carry
 // Normalized to 1.0x deployment, 2.5x gross return over 12 years (48 quarters)
-// Investment period: 5 years (20 quarters), Distributions: Q13-Q48
+// Investment period: 5 years (20 quarters), Distributions: Q15-Q48
 // ============================================================================
 
 // This curve represents GROSS fund performance - what the investments return
@@ -473,47 +473,47 @@ const Header = () => (
 // The dpi represents gross distributions from exits (before waterfall).
 
 const GROSS_BASE_CURVE = {
-  // Base parameters calibrated to achieve ~20% gross IRR at 2.5x gross
-  // Empirical formula: net = 0.7643 * gross + 0.1326 → 2.5x gross ≈ 2.0x net
+  // Base parameters tuned to reflect a three-phase lifecycle:
+  // deployment, operational value creation, and harvest/return.
   baseGrossMultiple: 2.5,
   baseFundLife: 12,            // 12 years = 48 quarters
   baseInvestmentPeriod: 5,     // 5 years to full deployment
-  baseDistributionStart: 2.5,  // Distributions begin year 2.5 (Q10) - earlier for higher IRR
+  baseDistributionStart: 3.75, // Distributions begin year 3.75 (Q15)
 
-  // Capital deployment curve (S-curve shape, normalized 0-1)
+  // Capital deployment curve (slower start, faster middle, long tail)
   // Returns cumulative % deployed at given progress through investment period
   getDrawdown: (progress) => {
-    // Progress: 0-1 representing position through investment period
-    // S-curve: slower at start, faster in middle, slower at end
     const t = Math.max(0, Math.min(1, progress));
-    return t < 0.5
-      ? 2 * t * t
-      : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const smooth = t * t * (3 - 2 * t);
+    return 0.08 * t + 0.92 * smooth;
   },
 
-  // Distribution curve - front-loaded to achieve higher IRR
+  // Distribution curve - delayed start, accelerated middle harvest, tapered finish
   // Returns cumulative % of total distributions at given progress through distribution period
   getDistribution: (progress) => {
     const t = Math.max(0, Math.min(1, progress));
-    // Front-loaded distribution (exponent < 1 means more early, less late)
-    // 0.7 gives good IRR boost while keeping realistic shape
-    return Math.pow(t, 0.7);
+    if (t <= 0.2) {
+      return 0.12 * Math.pow(t / 0.2, 1.8);
+    }
+    if (t <= 0.8) {
+      return 0.12 + 0.76 * Math.pow((t - 0.2) / 0.6, 0.85);
+    }
+    return 0.88 + 0.12 * Math.pow((t - 0.8) / 0.2, 1.4);
   },
 
-  // NAV curve - unrealized value as multiple of deployed capital
-  // Peaks mid-fund then declines as distributions occur
+  // NAV curve - J-curve, then value creation, then harvest decline
   getNAV: (yearProgress, distributionProgress, grossMultiple) => {
-    if (yearProgress < 0.25) {
-      // Early years: slight J-curve (below cost initially)
-      return 0.95 + yearProgress * 0.4;
-    } else if (distributionProgress < 0.5) {
-      // Mid-fund: NAV building up
-      return 1.0 + (grossMultiple - 1) * distributionProgress * 1.2;
-    } else {
-      // Late fund: NAV declining as distributions occur
-      const remainingValue = (grossMultiple * (1 - distributionProgress));
-      return Math.max(0, remainingValue);
+    const t = Math.max(0, Math.min(1, yearProgress));
+    const harvest = Math.max(0, Math.min(1, distributionProgress));
+    const peakNAV = 1 + (grossMultiple - 1) * 0.6;
+
+    if (t < 0.25) {
+      return 0.9 + (t / 0.25) * 0.18;
     }
+    if (t < 0.65) {
+      return 1.08 + ((t - 0.25) / 0.4) * (peakNAV - 1.08);
+    }
+    return Math.max(0, peakNAV * (1 - Math.pow(harvest, 1.08)));
   }
 };
 
@@ -522,9 +522,9 @@ const generateQuarterlyData = (fundLife, investmentPeriod, grossMultiple) => {
   const totalQuarters = fundLife * 4;
   const investmentQuarters = investmentPeriod * 4;
   // Scale distribution start proportionally to fund life
-  // Base: 2.5 years into a 12-year fund = 20.8% through
+  // Base: 3.75 years into a 12-year fund = 31.25% through
   const distributionStartRatio = GROSS_BASE_CURVE.baseDistributionStart / GROSS_BASE_CURVE.baseFundLife;
-  const distributionStartQuarter = Math.max(Math.round(fundLife * distributionStartRatio * 4), 8);
+  const distributionStartQuarter = Math.max(Math.round(fundLife * distributionStartRatio * 4), 10);
   const distributionQuarters = totalQuarters - distributionStartQuarter + 1;
 
   const data = [];
@@ -617,7 +617,7 @@ const MasterDashboard = () => {
   const [hurdleRate, setHurdleRate] = useState(0.08);         // 8% preferred return
 
   // Performance input - GROSS multiple is the driver, net is derived using empirical formula
-  const [grossMultipleTarget, setGrossMultipleTarget] = useState(2.5); // 2.5x gross → ~2.0x net
+  const [grossMultipleTarget, setGrossMultipleTarget] = useState(2.5); // Baseline anchor: 2.5x gross → 2.0x net
 
   // Calculate everything from GROSS down to NET
   const calculations = useMemo(() => {
@@ -697,11 +697,14 @@ const MasterDashboard = () => {
     // STEP 3: Calculate NET multiple using empirical formula
     // =========================================================================
 
-    // Empirical relationship from actual fund data:
-    // Fee drag (gross - net) = 0.2357 * grossMultiple - 0.1326
-    // This captures the combined effect of management fees, expenses, and carry
-    // For 2.5x gross → 0.46x drag → 2.04x net
-    const empiricalFeeDrag = 0.2357 * grossMultiple - 0.1326;
+    // Baseline calibration anchor:
+    // 2.5x gross TVPI should map to 2.0x net TVPI (0.5x drag).
+    // Drag then scales with gross outcomes around that anchor.
+    const BASE_GROSS_TVPI = 2.5;
+    const BASE_NET_TVPI = 2.0;
+    const DRAG_SLOPE = 0.24;
+    const anchoredBaseDrag = BASE_GROSS_TVPI - BASE_NET_TVPI;
+    const empiricalFeeDrag = anchoredBaseDrag + DRAG_SLOPE * (grossMultiple - BASE_GROSS_TVPI);
     const netMultiple = grossMultiple - Math.max(0, empiricalFeeDrag);
     const netDistributions = netMultiple * fundSizeM;
     const netProfit = netDistributions - fundSizeM;
@@ -877,7 +880,7 @@ const MasterDashboard = () => {
     ) * 1.15;
 
     // Draw grid
-    ctx.strokeStyle = '#1a1a2e';
+    ctx.strokeStyle = '#dfe7f2';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 5; i++) {
       const y = padding.top + (i / 5) * chartHeight;
@@ -887,7 +890,7 @@ const MasterDashboard = () => {
       ctx.stroke();
 
       const val = maxValue - (i / 5) * maxValue;
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = '#6f819d';
       ctx.font = '11px Helvetica Neue';
       ctx.textAlign = 'right';
       ctx.fillText(formatCurrency(val, 0), padding.left - 10, y + 4);
@@ -954,7 +957,7 @@ const MasterDashboard = () => {
     const totalYears = Math.ceil(totalQuarters / 4);
     for (let year = 0; year <= totalYears; year += 2) {
       const x = padding.left + (year * 4 / totalQuarters) * chartWidth;
-      ctx.fillStyle = '#666';
+      ctx.fillStyle = '#6f819d';
       ctx.font = '11px Helvetica Neue';
       ctx.textAlign = 'center';
       ctx.fillText(`Yr ${year}`, x, height - padding.bottom + 25);
@@ -971,19 +974,19 @@ const MasterDashboard = () => {
     ctx.lineTo(padding.left + 15, legendY + 1.5);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#888';
+    ctx.fillStyle = '#5d6f89';
     ctx.font = '11px Helvetica Neue';
     ctx.textAlign = 'left';
     ctx.fillText('Capital Calls', padding.left + 22, legendY + 5);
 
     ctx.fillStyle = '#6BCB77';
     ctx.fillRect(padding.left + 120, legendY, 15, 3);
-    ctx.fillStyle = '#888';
+    ctx.fillStyle = '#5d6f89';
     ctx.fillText('NAV + DPI', padding.left + 142, legendY + 5);
 
     ctx.fillStyle = 'rgba(78, 205, 196, 0.4)';
     ctx.fillRect(padding.left + 230, legendY - 3, 15, 10);
-    ctx.fillStyle = '#888';
+    ctx.fillStyle = '#5d6f89';
     ctx.fillText('Distributions', padding.left + 252, legendY + 5);
 
   }, [calculations, fundLife, investmentPeriod, fundSize]);
@@ -1060,7 +1063,7 @@ const MasterDashboard = () => {
 
       // Draw connector line
       if (i > 0 && i < stages.length - 1) {
-        ctx.strokeStyle = '#333';
+        ctx.strokeStyle = '#7f8ea5';
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 3]);
         ctx.beginPath();
@@ -1072,14 +1075,14 @@ const MasterDashboard = () => {
       }
 
       // Value label
-      ctx.fillStyle = '#fff';
+      ctx.fillStyle = '#13233a';
       ctx.font = 'bold 11px Helvetica Neue';
       ctx.textAlign = 'center';
       const valueText = stage.isDeduction ? `-${formatCurrency(stage.value, 0)}` : formatCurrency(stage.value, 0);
       ctx.fillText(valueText, x + barWidth / 2, barTop - 8);
 
       // Stage label
-      ctx.fillStyle = '#888';
+      ctx.fillStyle = '#5d6f89';
       ctx.font = '10px Helvetica Neue';
       ctx.textAlign = 'center';
       ctx.fillText(stage.label, x + barWidth / 2, height - padding.bottom + 20);
@@ -1249,11 +1252,11 @@ const MasterDashboard = () => {
             <div className="metric-divider"></div>
             <div className="metric-small">
               <span>Total Costs</span>
-              <span style={{ color: '#fff' }}>{formatCurrency(calculations.totalCosts, 0)}</span>
+              <span style={{ color: '#13233a' }}>{formatCurrency(calculations.totalCosts, 0)}</span>
             </div>
             <div className="metric-small highlight">
               <span>Cost Drag</span>
-              <span style={{ color: calculations.feeDragPercent > 30 ? '#FF6B6B' : '#888' }}>
+              <span style={{ color: calculations.feeDragPercent > 30 ? '#FF6B6B' : '#5d6f89' }}>
                 {calculations.feeDragPercent.toFixed(1)}% of profits
               </span>
             </div>
@@ -1364,7 +1367,7 @@ const IntroSection = () => {
             label="Fee Drag"
             value={`${((grossReturn - netReturn) / (grossReturn - 1) * 100).toFixed(0)}%`}
             subtext="Of gross profits"
-            accent="#888"
+            accent="#5d6f89"
           />
         </div>
       </div>
@@ -1398,25 +1401,31 @@ const ManagementFeeSection = () => {
     const data = [];
     let cumulativeFees = 0;
 
-    // Model assumptions for a typical fund
-    // Investment pacing: ramp up during investment period
-    // Realization pacing: exits begin year 4, accelerate years 6-10
+    // Model assumptions for a typical fund lifecycle:
+    // deployment (years 1-5), operational development, and harvest (years 5+).
+    const DEPLOYMENT_TARGET = 0.94;
+    const INVESTMENT_LAG = 0.025;      // Called capital not yet deployed
+    const REALIZATION_START_YEAR = 5;
+    const REALIZATION_FRACTION = 0.95; // Not all cost necessarily realized in-period
 
     for (let year = 1; year <= fundLife; year++) {
-      // Called capital: cumulative amount called from LPs
-      // Assume ~20% called per year during investment period
-      const calledCapital = Math.min(fundSize, (year / investmentPeriod) * fundSize);
+      // Called capital follows a modest S-curve rather than linear pacing.
+      const deploymentProgress = Math.min(1, year / investmentPeriod);
+      const calledPct = deploymentProgress * deploymentProgress * (3 - 2 * deploymentProgress);
+      const calledCapital = Math.min(fundSize, fundSize * calledPct);
 
-      // Invested capital (cost basis): what's actually deployed
-      // Slightly lags called capital (cash drag)
-      const investedCapital = Math.min(fundSize * 0.95, Math.max(0, calledCapital - fundSize * 0.05));
+      // Invested capital lags called capital slightly due to reserves/cash drag.
+      const investedCapital = Math.min(
+        fundSize * DEPLOYMENT_TARGET,
+        Math.max(0, calledCapital - fundSize * INVESTMENT_LAG)
+      );
 
-      // Realizations: exits return capital starting year 4
+      // Realizations are back-ended after an initial value-creation period.
       let cumulativeRealizations = 0;
-      if (year >= 4) {
-        // S-curve of realizations
-        const realizationProgress = Math.min(1, (year - 3) / (fundLife - 3));
-        cumulativeRealizations = investedCapital * Math.pow(realizationProgress, 1.5) * 0.9;
+      if (year >= REALIZATION_START_YEAR) {
+        const denom = Math.max(1, fundLife - REALIZATION_START_YEAR + 1);
+        const realizationProgress = Math.min(1, (year - REALIZATION_START_YEAR + 1) / denom);
+        cumulativeRealizations = investedCapital * Math.pow(realizationProgress, 1.35) * REALIZATION_FRACTION;
       }
 
       // Remaining cost basis = invested - realizations (at cost)
@@ -1585,7 +1594,7 @@ const ManagementFeeSection = () => {
           <MetricCard
             label="Average Annual Fee"
             value={formatCurrency((totalFees / fundLife) * 1e6, 0)}
-            accent="#888"
+            accent="#5d6f89"
           />
         </div>
 
@@ -1632,8 +1641,8 @@ const ManagementFeeSection = () => {
               </tbody>
             </table>
             <div className="table-note">
-              Shaded rows indicate post-investment period. Assumptions: 95% deployment,
-              realizations begin Year 4 with S-curve pacing.
+              Shaded rows indicate post-investment period. Assumptions: 94% deployment
+              target, 2.5% investment lag, realizations begin Year 5 with back-ended pacing.
             </div>
           </div>
         )}
@@ -1686,7 +1695,7 @@ const ExpensesSection = () => {
       { name: 'Due Diligence', percent: 20, color: '#FFD93D', description: 'Third-party diligence providers, consultants' },
       { name: 'Travel & Meetings', percent: 15, color: '#FF8E53', description: 'Deal sourcing, portfolio company visits, AGMs' },
       { name: 'Insurance & Other', percent: 12, color: '#FF6B6B', description: 'D&O insurance, cybersecurity, bank fees' },
-      { name: 'Broken Deal Costs', percent: 8, color: '#888', description: 'Costs from deals that don\'t close' },
+      { name: 'Broken Deal Costs', percent: 8, color: '#5d6f89', description: 'Costs from deals that don\'t close' },
     ];
 
     let totalExpenses = 0;
@@ -1809,7 +1818,7 @@ const ExpensesSection = () => {
             label="Harvest Period"
             value={formatCurrency(expenseData.harvestPeriodExpenses * 1e6, 0)}
             subtext={`~${(expenseRate * 0.4 * 10000).toFixed(0)} bps annually`}
-            accent="#888"
+            accent="#5d6f89"
           />
         </div>
       </div>
@@ -2082,13 +2091,13 @@ const CarrySection = () => {
             label="GP Carry"
             value={formatCurrency(waterfallData.gpCarry * 1e6, 0)}
             subtext={waterfallData.hurdleCleared ? `${formatPercent(carryRate)} of profits` : 'Hurdle not met'}
-            accent={waterfallData.gpCarry > 0 ? '#FF6B6B' : '#444'}
+            accent={waterfallData.gpCarry > 0 ? '#FF6B6B' : '#8a99af'}
           />
           <MetricCard
             label="Gross Multiple"
             value={`${waterfallData.grossMultiple.toFixed(2)}x`}
             subtext={`${formatPercent(fundIRR)} gross IRR`}
-            accent="#888"
+            accent="#5d6f89"
           />
         </div>
       </div>
@@ -2269,7 +2278,7 @@ const WaterfallComparisonSection = () => {
               <MetricCard
                 label="GP Carry"
                 value={formatCurrency(comparisonData.european.carry * 1e6, 0)}
-                accent="#888"
+                accent="#5d6f89"
               />
             </div>
           </div>
@@ -2285,7 +2294,7 @@ const WaterfallComparisonSection = () => {
               <MetricCard
                 label="GP Carry"
                 value={formatCurrency(comparisonData.american.carry * 1e6, 0)}
-                accent="#888"
+                accent="#5d6f89"
               />
             </div>
           </div>
@@ -2703,8 +2712,8 @@ export default function App() {
 
         .pe-fees-app {
           font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-          background: #0a0a0f;
-          color: #d4d4d4;
+          background: #f4f7fb;
+          color: #1f2a3d;
           min-height: 100vh;
           width: 100%;
           line-height: 1.7;
@@ -2715,9 +2724,9 @@ export default function App() {
           position: sticky;
           top: 0;
           z-index: 100;
-          background: rgba(10, 10, 15, 0.95);
+          background: rgba(244, 247, 251, 0.92);
           backdrop-filter: blur(10px);
-          border-bottom: 1px solid #1a1a2e;
+          border-bottom: 1px solid #dfe7f2;
           padding: 16px 40px;
         }
 
@@ -2753,16 +2762,16 @@ export default function App() {
         .nav-tagline {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
-          color: #666;
+          color: #6f819d;
           letter-spacing: 1px;
           text-transform: uppercase;
         }
 
         /* Master Dashboard */
         .master-dashboard {
-          background: linear-gradient(180deg, #0f0f1a 0%, #0a0a0f 100%);
+          background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
           padding: 60px 40px 40px;
-          border-bottom: 1px solid #1a1a2e;
+          border-bottom: 1px solid #dfe7f2;
         }
 
         .dashboard-header {
@@ -2773,14 +2782,14 @@ export default function App() {
         .dashboard-header h1 {
           font-size: clamp(32px, 5vw, 48px);
           font-weight: 300;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 12px;
           letter-spacing: -0.5px;
         }
 
         .dashboard-subtitle {
           font-size: 16px;
-          color: #888;
+          color: #5d6f89;
         }
 
         .dashboard-grid {
@@ -2798,7 +2807,7 @@ export default function App() {
         }
 
         .control-group {
-          background: #1a1a2e;
+          background: #dfe7f2;
           border-radius: 8px;
           padding: 20px;
         }
@@ -2811,7 +2820,7 @@ export default function App() {
           color: #4ECDC4;
           margin-bottom: 16px;
           padding-bottom: 8px;
-          border-bottom: 1px solid #2a2a3a;
+          border-bottom: 1px solid #c2cfde;
         }
 
         .dashboard-main {
@@ -2821,7 +2830,7 @@ export default function App() {
         }
 
         .viz-container {
-          background: #1a1a2e;
+          background: #dfe7f2;
           border-radius: 8px;
           padding: 20px;
           flex: 1;
@@ -2835,13 +2844,13 @@ export default function App() {
           display: block;
           font-size: 14px;
           font-weight: 500;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 4px;
         }
 
         .viz-subtitle {
           font-size: 12px;
-          color: #666;
+          color: #6f819d;
         }
 
         .lifecycle-canvas {
@@ -2863,7 +2872,7 @@ export default function App() {
         }
 
         .metric-group {
-          background: #1a1a2e;
+          background: #dfe7f2;
           border-radius: 8px;
           padding: 16px;
         }
@@ -2873,7 +2882,7 @@ export default function App() {
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 1px;
-          color: #666;
+          color: #6f819d;
           margin-bottom: 12px;
         }
 
@@ -2886,7 +2895,7 @@ export default function App() {
 
         .metric-large .metric-label {
           font-size: 13px;
-          color: #888;
+          color: #5d6f89;
         }
 
         .metric-large .metric-value {
@@ -2900,12 +2909,12 @@ export default function App() {
           justify-content: space-between;
           align-items: center;
           font-size: 12px;
-          color: #888;
+          color: #5d6f89;
           padding: 6px 0;
         }
 
         .metric-small.highlight {
-          background: rgba(255, 255, 255, 0.03);
+          background: rgba(19, 35, 58, 0.06);
           margin: 0 -16px;
           padding: 8px 16px;
           border-radius: 4px;
@@ -2913,7 +2922,7 @@ export default function App() {
 
         .metric-divider {
           height: 1px;
-          background: #2a2a3a;
+          background: #c2cfde;
           margin: 8px 0;
         }
 
@@ -2953,13 +2962,13 @@ export default function App() {
         .breakdown-transition h2 {
           font-size: 32px;
           font-weight: 300;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 16px;
         }
 
         .breakdown-transition p {
           font-size: 16px;
-          color: #888;
+          color: #5d6f89;
           line-height: 1.7;
         }
 
@@ -2996,8 +3005,8 @@ export default function App() {
         .hero-section {
           padding: 80px 40px;
           text-align: center;
-          background: linear-gradient(180deg, #0f0f1a 0%, #0a0a0f 100%);
-          border-bottom: 1px solid #1a1a2e;
+          background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
+          border-bottom: 1px solid #dfe7f2;
         }
 
         .pathway-badge {
@@ -3015,14 +3024,14 @@ export default function App() {
         .hero-section h1 {
           font-size: clamp(28px, 5vw, 48px);
           font-weight: 400;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 16px;
           letter-spacing: -0.5px;
         }
 
         .hero-subtitle {
           font-size: 18px;
-          color: #888;
+          color: #5d6f89;
           max-width: 500px;
           margin: 0 auto 40px;
         }
@@ -3040,8 +3049,8 @@ export default function App() {
           font-size: 13px;
           padding: 12px 24px;
           border-radius: 4px;
-          background: #1a1a2e;
-          border: 1px solid #2a2a3a;
+          background: #dfe7f2;
+          border: 1px solid #c2cfde;
         }
 
         .flow-node.gross { border-color: #4ECDC4; color: #4ECDC4; }
@@ -3049,7 +3058,7 @@ export default function App() {
         .flow-node.net { border-color: #4ECDC4; color: #4ECDC4; }
 
         .flow-arrow {
-          color: #444;
+          color: #8a99af;
           font-size: 24px;
         }
 
@@ -3063,16 +3072,16 @@ export default function App() {
         .content-section h2 {
           font-size: 28px;
           font-weight: 400;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 24px;
           padding-bottom: 12px;
-          border-bottom: 1px solid #1a1a2e;
+          border-bottom: 1px solid #dfe7f2;
         }
 
         .content-section h3 {
           font-size: 20px;
           font-weight: 400;
-          color: #fff;
+          color: #13233a;
           margin: 40px 0 16px;
         }
 
@@ -3082,7 +3091,7 @@ export default function App() {
         }
 
         .content-section strong {
-          color: #fff;
+          color: #13233a;
         }
 
         .content-section em {
@@ -3092,8 +3101,8 @@ export default function App() {
 
         /* Interactive Blocks */
         .interactive-block {
-          background: #0f0f1a;
-          border: 1px solid #1a1a2e;
+          background: #ffffff;
+          border: 1px solid #dfe7f2;
           border-radius: 8px;
           padding: 24px;
           margin: 32px 0;
@@ -3108,13 +3117,13 @@ export default function App() {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 14px;
           font-weight: 500;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 4px;
         }
 
         .block-subtitle {
           font-size: 13px;
-          color: #666;
+          color: #6f819d;
         }
 
         /* Sliders */
@@ -3132,7 +3141,7 @@ export default function App() {
         .slider-label {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
-          color: #888;
+          color: #5d6f89;
           text-transform: uppercase;
           letter-spacing: 0.5px;
         }
@@ -3161,18 +3170,19 @@ export default function App() {
           width: 18px;
           height: 18px;
           border-radius: 50%;
-          background: #fff;
+          background: #ffffff;
+          border: 2px solid #8a99af;
           cursor: pointer;
-          box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+          box-shadow: 0 2px 6px rgba(19, 35, 58, 0.2);
         }
 
         .slider-input::-moz-range-thumb {
           width: 18px;
           height: 18px;
           border-radius: 50%;
-          background: #fff;
+          background: #ffffff;
           cursor: pointer;
-          border: none;
+          border: 2px solid #8a99af;
         }
 
         .sliders-grid {
@@ -3194,7 +3204,7 @@ export default function App() {
         .toggle-label {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
-          color: #888;
+          color: #5d6f89;
           text-transform: uppercase;
           letter-spacing: 0.5px;
           min-width: 140px;
@@ -3209,9 +3219,9 @@ export default function App() {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
           padding: 8px 16px;
-          border: 1px solid #2a2a3a;
+          border: 1px solid #c2cfde;
           background: transparent;
-          color: #888;
+          color: #5d6f89;
           cursor: pointer;
           transition: all 0.2s;
         }
@@ -3225,12 +3235,12 @@ export default function App() {
         }
 
         .toggle-button.active {
-          color: #0a0a0f;
+          color: #f4f7fb;
         }
 
         /* Terms Section */
         .terms-section {
-          background: #1a1a2e;
+          background: #dfe7f2;
           border-radius: 6px;
           padding: 16px 20px;
           margin-bottom: 24px;
@@ -3245,7 +3255,7 @@ export default function App() {
           color: #4ECDC4;
           margin-bottom: 16px;
           padding-bottom: 8px;
-          border-bottom: 1px solid #2a2a3a;
+          border-bottom: 1px solid #c2cfde;
         }
 
         .terms-section .toggle-row:last-child {
@@ -3259,9 +3269,9 @@ export default function App() {
           padding: 12px;
           margin-top: 20px;
           background: transparent;
-          border: 1px dashed #2a2a3a;
+          border: 1px dashed #c2cfde;
           border-radius: 6px;
-          color: #888;
+          color: #5d6f89;
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 13px;
           cursor: pointer;
@@ -3291,10 +3301,10 @@ export default function App() {
           font-weight: 500;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          color: #666;
+          color: #6f819d;
           text-align: right;
           padding: 8px 10px;
-          border-bottom: 1px solid #2a2a3a;
+          border-bottom: 1px solid #c2cfde;
           white-space: nowrap;
         }
 
@@ -3305,13 +3315,13 @@ export default function App() {
         .assumptions-table td {
           text-align: right;
           padding: 8px 10px;
-          border-bottom: 1px solid #1a1a2e;
-          color: #aaa;
+          border-bottom: 1px solid #dfe7f2;
+          color: #4f6078;
         }
 
         .assumptions-table td:first-child {
           text-align: center;
-          color: #666;
+          color: #6f819d;
         }
 
         .assumptions-table tr.post-investment {
@@ -3326,7 +3336,7 @@ export default function App() {
           display: block;
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 9px;
-          color: #666;
+          color: #6f819d;
           text-transform: uppercase;
         }
 
@@ -3341,7 +3351,7 @@ export default function App() {
         .table-note {
           margin-top: 12px;
           font-size: 11px;
-          color: #555;
+          color: #7d8ea6;
           font-style: italic;
         }
 
@@ -3354,7 +3364,7 @@ export default function App() {
         }
 
         .metric-card {
-          background: #1a1a2e;
+          background: #dfe7f2;
           padding: 16px;
           border-radius: 6px;
           text-align: center;
@@ -3363,7 +3373,7 @@ export default function App() {
         .metric-label {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 11px;
-          color: #666;
+          color: #6f819d;
           text-transform: uppercase;
           letter-spacing: 0.5px;
           margin-bottom: 8px;
@@ -3377,7 +3387,7 @@ export default function App() {
 
         .metric-subtext {
           font-size: 12px;
-          color: #666;
+          color: #6f819d;
           margin-top: 4px;
         }
 
@@ -3420,14 +3430,14 @@ export default function App() {
         .bar-value-label {
           font-family: 'SF Mono', 'Monaco', monospace;
           font-size: 11px;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 8px;
         }
 
         .bar-label {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 10px;
-          color: #666;
+          color: #6f819d;
           margin-top: 8px;
           text-align: center;
         }
@@ -3446,7 +3456,7 @@ export default function App() {
           gap: 8px;
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
-          color: #888;
+          color: #5d6f89;
         }
 
         .legend-color {
@@ -3502,8 +3512,8 @@ export default function App() {
         }
 
         .comparison-card {
-          background: #0f0f1a;
-          border: 1px solid #1a1a2e;
+          background: #ffffff;
+          border: 1px solid #dfe7f2;
           border-radius: 8px;
           padding: 24px;
         }
@@ -3512,7 +3522,7 @@ export default function App() {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 14px;
           font-weight: 500;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 12px;
         }
 
@@ -3529,7 +3539,7 @@ export default function App() {
 
         .comparison-list li {
           margin-bottom: 6px;
-          color: #888;
+          color: #5d6f89;
         }
 
         .comparison-metrics {
@@ -3559,7 +3569,7 @@ export default function App() {
         }
 
         .difference-callout {
-          background: #1a1a2e;
+          background: #dfe7f2;
           padding: 16px;
           border-radius: 6px;
           text-align: center;
@@ -3579,7 +3589,7 @@ export default function App() {
         }
 
         .structure-card {
-          background: #1a1a2e;
+          background: #dfe7f2;
           border: 2px solid;
           border-radius: 8px;
           padding: 16px;
@@ -3596,7 +3606,7 @@ export default function App() {
         .structure-net {
           font-family: 'SF Mono', 'Monaco', monospace;
           font-size: 24px;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 8px;
         }
 
@@ -3605,11 +3615,11 @@ export default function App() {
           flex-direction: column;
           gap: 2px;
           font-size: 11px;
-          color: #666;
+          color: #6f819d;
         }
 
         .crossover-indicator {
-          background: #1a1a2e;
+          background: #dfe7f2;
           border-radius: 8px;
           padding: 20px;
           text-align: center;
@@ -3626,13 +3636,13 @@ export default function App() {
           display: block;
           font-family: 'SF Mono', 'Monaco', monospace;
           font-size: 16px;
-          color: #fff;
+          color: #13233a;
           margin-bottom: 8px;
         }
 
         .crossover-text p {
           font-size: 13px;
-          color: #888;
+          color: #5d6f89;
           margin: 0;
         }
 
@@ -3648,7 +3658,7 @@ export default function App() {
           display: block;
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 11px;
-          color: #666;
+          color: #6f819d;
           text-transform: uppercase;
           margin-bottom: 8px;
         }
@@ -3657,7 +3667,7 @@ export default function App() {
         .callout {
           display: flex;
           gap: 16px;
-          background: #1a1a2e;
+          background: #dfe7f2;
           border-left: 3px solid #4ECDC4;
           padding: 20px;
           margin: 32px 0;
@@ -3697,7 +3707,7 @@ export default function App() {
         .expense-bar-container {
           width: 120px;
           height: 24px;
-          background: #1a1a2e;
+          background: #dfe7f2;
           border-radius: 4px;
           position: relative;
           overflow: hidden;
@@ -3717,7 +3727,7 @@ export default function App() {
           transform: translateY(-50%);
           font-family: 'SF Mono', 'Monaco', monospace;
           font-size: 11px;
-          color: #fff;
+          color: #13233a;
           font-weight: 500;
         }
 
@@ -3730,23 +3740,23 @@ export default function App() {
         .expense-name {
           font-size: 13px;
           font-weight: 500;
-          color: #fff;
+          color: #13233a;
         }
 
         .expense-desc {
           font-size: 11px;
-          color: #666;
+          color: #6f819d;
         }
 
         /* Conclusion */
         .conclusion {
-          border-top: 1px solid #1a1a2e;
+          border-top: 1px solid #dfe7f2;
           margin-top: 40px;
         }
 
         .final-thought {
-          background: linear-gradient(135deg, #0f0f1a 0%, #1a1a2e 100%);
-          border: 1px solid #2a2a3a;
+          background: linear-gradient(135deg, #ffffff 0%, #dfe7f2 100%);
+          border: 1px solid #c2cfde;
           border-radius: 8px;
           padding: 32px;
           margin: 40px 0;
@@ -3755,14 +3765,14 @@ export default function App() {
 
         .final-thought p {
           font-size: 18px;
-          color: #fff;
+          color: #13233a;
           margin: 0;
         }
 
         .pathway-footer {
           text-align: center;
           padding: 40px 0;
-          border-top: 1px solid #1a1a2e;
+          border-top: 1px solid #dfe7f2;
           margin-top: 40px;
         }
 
@@ -3777,7 +3787,7 @@ export default function App() {
 
         .pathway-footer p {
           font-size: 13px;
-          color: #666;
+          color: #6f819d;
           margin: 0;
         }
 
