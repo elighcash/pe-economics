@@ -22,11 +22,26 @@ const formatPercent = (value, decimals = 1) => `${(value * 100).toFixed(decimals
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
+// Shared source-of-truth mapping for gross to net TVPI.
+// Anchored at 2.5x gross -> 2.0x net, with widening drag at higher outcomes.
+const BASELINE_GROSS_TVPI = 2.5;
+const BASELINE_NET_TVPI = 2.0;
+const MIN_NET_TVPI = 1.0;
+const BASELINE_MODEL_INPUTS = {
+  fundSize: 500,          // millions
+  fundLife: 12,
+  investmentPeriod: 5,
+  mgmtFeeRate: 0.02,
+  expenseRate: 0.005,
+  carryRate: 0.20,
+  hurdleRate: 0.08
+};
+
 // ============================================================================
 // REUSABLE COMPONENTS
 // ============================================================================
 
-const Slider = ({ value, onChange, min, max, step = 0.01, label, format = (v) => v, accent = '#4ECDC4' }) => {
+const Slider = ({ value, onChange, min, max, step = 0.01, label, format = (v) => v, accent = '#1B2A4A' }) => {
   const percentage = ((value - min) / (max - min)) * 100;
 
   return (
@@ -45,7 +60,7 @@ const Slider = ({ value, onChange, min, max, step = 0.01, label, format = (v) =>
           onChange={(e) => onChange(parseFloat(e.target.value))}
           className="slider-input"
           style={{
-            background: `linear-gradient(to right, ${accent} 0%, ${accent} ${percentage}%, #c2cfde ${percentage}%, #c2cfde 100%)`
+            background: `linear-gradient(to right, ${accent} 0%, ${accent} ${percentage}%, #D9D5CF ${percentage}%, #D9D5CF 100%)`
           }}
         />
       </div>
@@ -53,7 +68,7 @@ const Slider = ({ value, onChange, min, max, step = 0.01, label, format = (v) =>
   );
 };
 
-const MetricCard = ({ label, value, subtext, accent = '#4ECDC4' }) => (
+const MetricCard = ({ label, value, subtext, accent = '#1B2A4A' }) => (
   <div className="metric-card">
     <div className="metric-label">{label}</div>
     <div className="metric-value" style={{ color: accent }}>{value}</div>
@@ -61,7 +76,7 @@ const MetricCard = ({ label, value, subtext, accent = '#4ECDC4' }) => (
   </div>
 );
 
-const ToggleSwitch = ({ options, value, onChange, accent = '#4ECDC4' }) => (
+const ToggleSwitch = ({ options, value, onChange, accent = '#1B2A4A' }) => (
   <div className="toggle-container">
     {options.map((option) => (
       <button
@@ -76,11 +91,77 @@ const ToggleSwitch = ({ options, value, onChange, accent = '#4ECDC4' }) => (
   </div>
 );
 
+const ResetButton = ({ onClick, label = 'Reset' }) => (
+  <button type="button" className="reset-button" onClick={onClick}>
+    {label}
+  </button>
+);
+
+const SECTION_LINKS = [
+  { id: 'hero-baseline', label: 'Gross Baseline' },
+  { id: 'why-matters', label: 'Why This Matters' },
+  { id: 'management-fees', label: 'Management Fees' },
+  { id: 'fund-expenses', label: 'Fund Expenses' },
+  { id: 'carried-interest', label: 'Carry Mechanics' },
+  { id: 'waterfall-structures', label: 'Waterfalls' },
+  { id: 'underinvesting-impact', label: 'Underinvesting' },
+  { id: 'fee-carry-tradeoff', label: 'Fee/Carry Tradeoff' },
+  { id: 'accrued-carry', label: 'Accrued Carry' },
+  { id: 'quarterly-schedule', label: 'Quarterly Schedule' },
+  { id: 'synthesis', label: 'Put It Together' },
+  { id: 'conclusion', label: 'Conclusion' }
+];
+
+const SideNav = ({ sections }) => {
+  const [activeId, setActiveId] = useState(sections[0]?.id || '');
+
+  useEffect(() => {
+    const updateActive = () => {
+      let current = sections[0]?.id || '';
+      sections.forEach((section) => {
+        const el = document.getElementById(section.id);
+        if (!el) return;
+        const rect = el.getBoundingClientRect();
+        if (rect.top <= 140) {
+          current = section.id;
+        }
+      });
+      setActiveId(current);
+    };
+
+    updateActive();
+    window.addEventListener('scroll', updateActive, { passive: true });
+    window.addEventListener('resize', updateActive);
+    return () => {
+      window.removeEventListener('scroll', updateActive);
+      window.removeEventListener('resize', updateActive);
+    };
+  }, [sections]);
+
+  return (
+    <aside className="side-nav">
+      <div className="side-nav-title">Contents</div>
+      <nav className="side-nav-links">
+        {sections.map((section, index) => (
+          <a
+            key={section.id}
+            href={`#${section.id}`}
+            className={`side-nav-link ${activeId === section.id ? 'active' : ''}`}
+          >
+            <span className="side-nav-index">{String(index + 1).padStart(2, '0')}</span>
+            <span className="side-nav-text">{section.label}</span>
+          </a>
+        ))}
+      </nav>
+    </aside>
+  );
+};
+
 // ============================================================================
 // VISUALIZATION COMPONENTS
 // ============================================================================
 
-const BarChart = ({ data, height = 200, accent = '#4ECDC4', showLabels = true }) => {
+const BarChart = ({ data, height = 200, accent = '#1B2A4A', showLabels = true }) => {
   const maxValue = Math.max(...data.map(d => d.value));
 
   return (
@@ -131,17 +212,17 @@ const FlowDiagram = ({ stages, height = 300 }) => {
       const y = h - 40 - barHeight;
 
       // Draw bar
-      ctx.fillStyle = stage.color || '#4ECDC4';
+      ctx.fillStyle = stage.color || '#1B2A4A';
       ctx.fillRect(x - 30, y, 60, barHeight);
 
       // Draw label
-      ctx.fillStyle = '#5d6f89';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '12px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText(stage.label, x, h - 20);
 
       // Draw value
-      ctx.fillStyle = '#13233a';
+      ctx.fillStyle = '#1B2A4A';
       ctx.font = 'bold 14px system-ui';
       ctx.fillText(stage.valueLabel || formatCurrency(stage.value, 1), x, y - 10);
 
@@ -151,7 +232,7 @@ const FlowDiagram = ({ stages, height = 300 }) => {
         const nextBarHeight = (nextStage.value / maxValue) * (h - 80);
         const nextY = h - 40 - nextBarHeight;
 
-        ctx.strokeStyle = '#8a99af';
+        ctx.strokeStyle = '#9A9690';
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(x + 35, y + barHeight / 2);
@@ -165,7 +246,7 @@ const FlowDiagram = ({ stages, height = 300 }) => {
         ctx.lineTo(x + stageWidth - 45, nextY + nextBarHeight / 2 - 8);
         ctx.lineTo(x + stageWidth - 45, nextY + nextBarHeight / 2 + 8);
         ctx.closePath();
-        ctx.fillStyle = '#8a99af';
+        ctx.fillStyle = '#9A9690';
         ctx.fill();
       }
     });
@@ -228,14 +309,14 @@ const WaterfallChart = ({ data, height = 280 }) => {
       }
 
       // Draw value label
-      ctx.fillStyle = '#13233a';
+      ctx.fillStyle = '#1B2A4A';
       ctx.font = 'bold 11px system-ui';
       ctx.textAlign = 'center';
       const valueY = d.isIncrease ? barTop - 8 : prevTop - 8;
       ctx.fillText(d.valueLabel, x + barWidth / 2, barTop - 8);
 
       // Draw category label
-      ctx.fillStyle = '#5d6f89';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'center';
 
@@ -299,14 +380,14 @@ const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
       ctx.stroke();
 
       const val = maxValue - (i / 4) * range;
-      ctx.fillStyle = '#6f819d';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'right';
       ctx.fillText(formatCurrency(val, 0), padding.left - 8, y + 4);
     }
 
     // Draw line
-    ctx.strokeStyle = '#4ECDC4';
+    ctx.strokeStyle = '#1B2A4A';
     ctx.lineWidth = 2;
     ctx.beginPath();
     data.forEach((d, i) => {
@@ -324,13 +405,13 @@ const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
       const val = showCumulative ? d.cumulative : d.value;
       const y = padding.top + ((maxValue - val) / range) * chartHeight;
 
-      ctx.fillStyle = '#4ECDC4';
+      ctx.fillStyle = '#1B2A4A';
       ctx.beginPath();
       ctx.arc(x, y, 4, 0, Math.PI * 2);
       ctx.fill();
 
       // Year label
-      ctx.fillStyle = '#5d6f89';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText(d.label, x, h - padding.bottom + 20);
@@ -340,7 +421,7 @@ const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
   return <canvas ref={canvasRef} className="timeline-canvas" style={{ width: '100%', height }} />;
 };
 
-const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, colorA = '#4ECDC4', colorB = '#FF6B6B' }) => {
+const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, colorA = '#1B2A4A', colorB = '#B5473A' }) => {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -369,7 +450,7 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
     // Draw zero line if applicable
     if (minValue < 0) {
       const zeroY = padding.top + (maxValue / range) * chartHeight;
-      ctx.strokeStyle = '#8a99af';
+      ctx.strokeStyle = '#9A9690';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(padding.left, zeroY);
@@ -378,7 +459,7 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
     }
 
     // Draw grid
-    ctx.strokeStyle = '#dfe7f2';
+    ctx.strokeStyle = '#E8E6E1';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 4; i++) {
       const y = padding.top + (i / 4) * chartHeight;
@@ -388,7 +469,7 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
       ctx.stroke();
 
       const val = maxValue - (i / 4) * range;
-      ctx.fillStyle = '#6f819d';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'right';
       ctx.fillText(formatCurrency(val, 0), padding.left - 8, y + 4);
@@ -421,20 +502,20 @@ const ComparisonChart = ({ seriesA, seriesB, labelA, labelB, height = 250, color
     // Legend
     ctx.fillStyle = colorA;
     ctx.fillRect(padding.left, 10, 20, 3);
-    ctx.fillStyle = '#4f6078';
+    ctx.fillStyle = '#4A4641';
     ctx.font = '11px system-ui';
     ctx.textAlign = 'left';
     ctx.fillText(labelA, padding.left + 28, 14);
 
     ctx.fillStyle = colorB;
     ctx.fillRect(padding.left + 120, 10, 20, 3);
-    ctx.fillStyle = '#4f6078';
+    ctx.fillStyle = '#4A4641';
     ctx.fillText(labelB, padding.left + 148, 14);
 
     // X-axis labels
     for (let i = 0; i < seriesA.length; i++) {
       const x = padding.left + (i / (seriesA.length - 1)) * chartWidth;
-      ctx.fillStyle = '#6f819d';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'center';
       ctx.fillText(`Yr ${i}`, x, h - padding.bottom + 20);
@@ -460,6 +541,246 @@ const Header = () => (
     </div>
   </header>
 );
+
+const HeroGrossNetGraph = () => {
+  const canvasRef = useRef(null);
+  const netCurve = useMemo(() => {
+    const points = [];
+    for (let gross = 1.0; gross <= 3.5001; gross += 0.01) {
+      const model = buildQuarterlySchedule({
+        fundSizeM: BASELINE_MODEL_INPUTS.fundSize * 1e6,
+        fundLife: BASELINE_MODEL_INPUTS.fundLife,
+        investmentPeriod: BASELINE_MODEL_INPUTS.investmentPeriod,
+        grossMultiple: gross,
+        mgmtFeeRate: BASELINE_MODEL_INPUTS.mgmtFeeRate,
+        expenseRate: BASELINE_MODEL_INPUTS.expenseRate,
+        carryRate: BASELINE_MODEL_INPUTS.carryRate,
+        hurdleRate: BASELINE_MODEL_INPUTS.hurdleRate,
+        deploymentRate: 1
+      });
+      points.push({
+        gross: Number(gross.toFixed(2)),
+        net: model.totals.netMultiple
+      });
+    }
+    return points;
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const minX = 1.0;
+    const maxX = 3.5;
+    const minY = 1.0;
+    const maxY = 3.5;
+    const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    const interpolateNet = (gross) => {
+      if (gross <= netCurve[0].gross) return netCurve[0].net;
+      if (gross >= netCurve[netCurve.length - 1].gross) return netCurve[netCurve.length - 1].net;
+      for (let i = 1; i < netCurve.length; i++) {
+        if (gross <= netCurve[i].gross) {
+          const left = netCurve[i - 1];
+          const right = netCurve[i];
+          const t = (gross - left.gross) / (right.gross - left.gross);
+          return lerp(left.net, right.net, t);
+        }
+      }
+      return netCurve[netCurve.length - 1].net;
+    };
+
+    const axisX = (value, padding, width) =>
+      padding.left + ((value - minX) / (maxX - minX)) * (width - padding.left - padding.right);
+    const axisY = (value, padding, height) =>
+      height - padding.bottom - ((value - minY) / (maxY - minY)) * (height - padding.top - padding.bottom);
+
+    const draw = (timestamp = 0) => {
+      const rect = canvas.getBoundingClientRect();
+      const width = rect.width;
+      const height = rect.height;
+      const dpr = window.devicePixelRatio || 1;
+      const targetWidth = Math.max(1, Math.floor(width * dpr));
+      const targetHeight = Math.max(1, Math.floor(height * dpr));
+
+      if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
+        canvas.width = targetWidth;
+        canvas.height = targetHeight;
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+
+      const padding = { top: 18, right: 26, bottom: 46, left: 58 };
+      const chartWidth = width - padding.left - padding.right;
+      const chartHeight = height - padding.top - padding.bottom;
+
+      const bgGradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+      bgGradient.addColorStop(0, 'rgba(27, 42, 74, 0.05)');
+      bgGradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+      ctx.fillStyle = bgGradient;
+      ctx.fillRect(padding.left, padding.top, chartWidth, chartHeight);
+
+      ctx.strokeStyle = '#E2E8F2';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = padding.top + (i / 5) * chartHeight;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+      }
+      for (let i = 0; i <= 5; i++) {
+        const x = padding.left + (i / 5) * chartWidth;
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, height - padding.bottom);
+        ctx.stroke();
+      }
+
+      const ticks = [1.0, 1.5, 2.0, 2.5, 3.0, 3.5];
+      ctx.fillStyle = '#7A8397';
+      ctx.font = '11px Helvetica Neue';
+      ctx.textAlign = 'right';
+      ticks.forEach((tick) => {
+        ctx.fillText(`${tick.toFixed(1)}x`, padding.left - 8, axisY(tick, padding, height) + 4);
+      });
+      ctx.textAlign = 'center';
+      ticks.forEach((tick) => {
+        ctx.fillText(`${tick.toFixed(1)}x`, axisX(tick, padding, width), height - 24);
+      });
+
+      ctx.fillStyle = '#5F687A';
+      ctx.font = '11px Helvetica Neue';
+      ctx.textAlign = 'center';
+      ctx.fillText('Gross Multiple (TVPI)', padding.left + chartWidth / 2, height - 8);
+      ctx.save();
+      ctx.translate(14, padding.top + chartHeight / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText('Net Multiple (TVPI)', 0, 0);
+      ctx.restore();
+
+      ctx.beginPath();
+      netCurve.forEach((p, idx) => {
+        const x = axisX(p.gross, padding, width);
+        const y = axisY(p.gross, padding, height);
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.lineTo(axisX(maxX, padding, width), axisY(minY, padding, height));
+      ctx.lineTo(axisX(minX, padding, width), axisY(minY, padding, height));
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(201, 168, 76, 0.16)';
+      ctx.fill();
+
+      ctx.strokeStyle = '#2D6B4F';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      ctx.moveTo(axisX(minX, padding, width), axisY(minX, padding, height));
+      ctx.lineTo(axisX(maxX, padding, width), axisY(maxX, padding, height));
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = '#1B2A4A';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      netCurve.forEach((p, idx) => {
+        const x = axisX(p.gross, padding, width);
+        const y = axisY(p.net, padding, height);
+        if (idx === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+
+      const baselineGross = 2.5;
+      const baselineNet = interpolateNet(baselineGross);
+      const bx = axisX(baselineGross, padding, width);
+      const by = axisY(baselineNet, padding, height);
+      ctx.fillStyle = '#C9A84C';
+      ctx.beginPath();
+      ctx.arc(bx, by, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#0F1B33';
+      ctx.font = '600 11px Helvetica Neue';
+      ctx.textAlign = 'left';
+      ctx.fillText('Baseline 2.5x → 2.0x', bx + 10, by - 10);
+
+      const phase = reducedMotion ? 0.62 : (Math.sin(timestamp * 0.00045) + 1) / 2;
+      const animatedGross = minX + phase * (maxX - minX);
+      const animatedNet = interpolateNet(animatedGross);
+      const gx = axisX(animatedGross, padding, width);
+      const gyNet = axisY(animatedNet, padding, height);
+      const gyGross = axisY(animatedGross, padding, height);
+
+      ctx.strokeStyle = 'rgba(27, 42, 74, 0.28)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(gx, padding.top);
+      ctx.lineTo(gx, height - padding.bottom);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      ctx.strokeStyle = '#C9A84C';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(gx, gyGross);
+      ctx.lineTo(gx, gyNet);
+      ctx.stroke();
+
+      ctx.fillStyle = '#2D6B4F';
+      ctx.beginPath();
+      ctx.arc(gx, gyGross, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#1B2A4A';
+      ctx.beginPath();
+      ctx.arc(gx, gyNet, 5, 0, Math.PI * 2);
+      ctx.fill();
+
+      ctx.fillStyle = '#5F687A';
+      ctx.font = '10px Helvetica Neue';
+      ctx.textAlign = gx > width - 140 ? 'right' : 'left';
+      const labelX = gx > width - 140 ? gx - 8 : gx + 8;
+      ctx.fillText(`Gross ${animatedGross.toFixed(2)}x`, labelX, gyGross - 8);
+      ctx.fillText(`Net ${animatedNet.toFixed(2)}x`, labelX, gyNet + 14);
+    };
+
+    let rafId = 0;
+    const frame = (ts) => {
+      draw(ts);
+      if (!reducedMotion) {
+        rafId = requestAnimationFrame(frame);
+      }
+    };
+
+    if (reducedMotion) {
+      draw(0);
+    } else {
+      rafId = requestAnimationFrame(frame);
+    }
+
+    const handleResize = () => draw(0);
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      cancelAnimationFrame(rafId);
+    };
+  }, [netCurve]);
+
+  return (
+    <div className="hero-graphboard">
+      <canvas ref={canvasRef} className="hero-graph-canvas" />
+      <div className="hero-graph-legend">
+        <span className="hero-legend-item gross">Gross (No Fees)</span>
+        <span className="hero-legend-item net">Net (To LP)</span>
+        <span className="hero-legend-item spread">Gross-to-Net Spread</span>
+      </div>
+    </div>
+  );
+};
 
 // ============================================================================
 // GROSS BASE CURVE - Underlying investment performance BEFORE fees/carry
@@ -506,6 +827,9 @@ const GROSS_BASE_CURVE = {
     const t = Math.max(0, Math.min(1, yearProgress));
     const harvest = Math.max(0, Math.min(1, distributionProgress));
     const peakNAV = 1 + (grossMultiple - 1) * 0.6;
+    // Keep NAV continuous when moving from value-creation to harvest.
+    // At t=0.65, distribution progress is ~49% under the base timing assumptions.
+    const harvestStartProgress = 0.49;
 
     if (t < 0.25) {
       return 0.9 + (t / 0.25) * 0.18;
@@ -513,7 +837,8 @@ const GROSS_BASE_CURVE = {
     if (t < 0.65) {
       return 1.08 + ((t - 0.25) / 0.4) * (peakNAV - 1.08);
     }
-    return Math.max(0, peakNAV * (1 - Math.pow(harvest, 1.08)));
+    const normalizedHarvest = Math.max(0, (harvest - harvestStartProgress) / (1 - harvestStartProgress));
+    return Math.max(0, peakNAV * (1 - Math.pow(normalizedHarvest, 1.08)));
   }
 };
 
@@ -600,246 +925,292 @@ const calculateIRR = (cashFlows, periodsPerYear = 4) => {
   return rate;
 };
 
+// Source-of-truth quarterly model used across sections.
+const buildQuarterlySchedule = ({
+  fundSizeM,
+  fundLife,
+  investmentPeriod,
+  grossMultiple,
+  mgmtFeeRate,
+  expenseRate,
+  carryRate,
+  hurdleRate,
+  deploymentRate = 1
+}) => {
+  const grossQuarterlyData = generateQuarterlyData(fundLife, investmentPeriod, grossMultiple);
+  const totalQuarters = fundLife * 4;
+  const investmentQuarters = investmentPeriod * 4;
+  const deployedCapitalTarget = fundSizeM * deploymentRate;
+
+  let cumulativeGrossDist = 0;
+  let cumulativeNetDist = 0;
+  let cumulativeMgmtFees = 0;
+  let cumulativeExpenses = 0;
+  let cumulativeCarry = 0;
+  let cumulativeCalledCapital = 0;
+  let lpBalance = 0; // Called capital balance owed to LPs before carry.
+  let cumulativeNetCF = 0;
+
+  const grossCashFlows = [];
+  const netCashFlows = [];
+  const schedule = [];
+
+  grossQuarterlyData.forEach((q) => {
+    const isInvestmentPeriod = q.quarter <= investmentQuarters;
+    const capitalCall = q.capitalCall * deployedCapitalTarget;
+    const grossDistribution = q.distribution * deployedCapitalTarget;
+    cumulativeCalledCapital += capitalCall;
+    cumulativeGrossDist += grossDistribution;
+
+    // Translate gross distributions into returned cost basis for post-investment fee basis.
+    const costRealized = grossMultiple > 0 ? cumulativeGrossDist / grossMultiple : 0;
+    const deployedCost = q.drawdown * deployedCapitalTarget;
+    const remainingCostBasis = Math.max(0, deployedCost - costRealized);
+    const feeBasisFloor = fundSizeM * 0.4;
+    const expenseBasisFloor = fundSizeM * 0.3;
+    const feeBasis = isInvestmentPeriod ? fundSizeM : Math.max(remainingCostBasis, feeBasisFloor);
+    const expenseBasis = isInvestmentPeriod ? fundSizeM : Math.max(remainingCostBasis, expenseBasisFloor);
+
+    // Schedule calibration assumptions:
+    // post-investment fee step-down is modest, and expenses stay meaningful through harvest.
+    const effectiveFeeRate = isInvestmentPeriod ? mgmtFeeRate : mgmtFeeRate * 0.85;
+    const effectiveExpenseRate = isInvestmentPeriod ? expenseRate : expenseRate;
+    const mgmtFee = feeBasis * effectiveFeeRate / 4;
+    const expense = expenseBasis * effectiveExpenseRate / 4;
+
+    cumulativeMgmtFees += mgmtFee;
+    cumulativeExpenses += expense;
+
+    // LP pref balance accrues on called capital only (fees are modeled as separate outflows).
+    lpBalance = lpBalance * (1 + hurdleRate / 4) + capitalCall;
+
+    // European-style carry: only after full LP balance is returned.
+    let netDistribution = 0;
+    let carry = 0;
+    if (grossDistribution > 0) {
+      const lpReturn = Math.min(grossDistribution, lpBalance);
+      lpBalance = Math.max(0, lpBalance - lpReturn);
+      const residual = grossDistribution - lpReturn;
+      carry = residual * carryRate;
+      netDistribution = lpReturn + residual - carry;
+    }
+
+    cumulativeCarry += carry;
+    cumulativeNetDist += netDistribution;
+
+    const netCF = netDistribution - capitalCall - mgmtFee - expense;
+    cumulativeNetCF += netCF;
+
+    if (capitalCall > 0) {
+      grossCashFlows.push({ period: q.quarter, amount: -capitalCall });
+      netCashFlows.push({ period: q.quarter, amount: -(capitalCall + mgmtFee + expense) });
+    } else if (mgmtFee + expense > 0) {
+      netCashFlows.push({ period: q.quarter, amount: -(mgmtFee + expense) });
+    }
+    if (grossDistribution > 0) {
+      grossCashFlows.push({ period: q.quarter, amount: grossDistribution });
+    }
+    if (netDistribution > 0) {
+      netCashFlows.push({ period: q.quarter, amount: netDistribution });
+    }
+
+    schedule.push({
+      quarter: q.quarter,
+      year: q.year,
+      isInvestmentPeriod,
+      drawdownPct: q.drawdown * deploymentRate,
+      capitalCall,
+      feeBasis,
+      mgmtFee,
+      expense,
+      grossDistribution,
+      carry,
+      netDistribution,
+      nav: q.rvpi * deployedCapitalTarget,
+      lpBalance,
+      cumulativeGrossDist,
+      cumulativeNetDist,
+      cumulativeMgmtFees,
+      cumulativeExpenses,
+      cumulativeCarry,
+      netCF,
+      cumulativeNetCF
+    });
+  });
+
+  const grossValue = deployedCapitalTarget * grossMultiple;
+  const grossProfitOnCalled = Math.max(0, grossValue - cumulativeCalledCapital);
+  const avgHoldPeriod = fundLife * 0.6;
+  const hurdleAmount = cumulativeCalledCapital * (Math.pow(1 + hurdleRate, avgHoldPeriod) - 1);
+  const residualAfterHurdle = Math.max(0, grossProfitOnCalled - hurdleAmount);
+  const hurdleCleared = residualAfterHurdle > 0;
+
+  // Continuous carry target:
+  // 1) Profit first pays LP preferred return (hurdle).
+  // 2) GP gets catch-up until reaching carry share.
+  // 3) Then split at carry rate.
+  const catchUpTarget = carryRate < 1 ? (carryRate * hurdleAmount) / (1 - carryRate) : 0;
+  const targetCarry = residualAfterHurdle <= catchUpTarget
+    ? residualAfterHurdle
+    : catchUpTarget + (residualAfterHurdle - catchUpTarget) * carryRate;
+
+  // Quarter-level simulation can understate catch-up; top up at fund end.
+  const carryTopUp = Math.max(0, targetCarry - cumulativeCarry);
+  if (carryTopUp > 0 && schedule.length > 0) {
+    cumulativeCarry += carryTopUp;
+    cumulativeNetDist -= carryTopUp;
+    const last = schedule[schedule.length - 1];
+    last.carry += carryTopUp;
+    last.netDistribution = Math.max(0, last.netDistribution - carryTopUp);
+    last.cumulativeCarry = cumulativeCarry;
+    last.cumulativeNetDist = cumulativeNetDist;
+    last.netCF -= carryTopUp;
+    last.cumulativeNetCF -= carryTopUp;
+    netCashFlows.push({ period: last.quarter, amount: -carryTopUp });
+  }
+
+  const netValue = cumulativeNetDist - cumulativeMgmtFees - cumulativeExpenses;
+  const grossIRR = grossCashFlows.length > 2 ? calculateIRR(grossCashFlows, 4) : 0;
+  const netIRR = netCashFlows.length > 2 ? calculateIRR(netCashFlows, 4) : 0;
+
+  return {
+    schedule,
+    totals: {
+      grossValue,
+      netValue,
+      grossMultiple: fundSizeM > 0 ? grossValue / fundSizeM : 0,
+      grossMOICOnInvested: grossMultiple,
+      netMultiple: fundSizeM > 0 ? netValue / fundSizeM : 0,
+      grossIRR,
+      netIRR,
+      totalMgmtFees: cumulativeMgmtFees,
+      totalExpenses: cumulativeExpenses,
+      carry: cumulativeCarry,
+      totalCosts: cumulativeMgmtFees + cumulativeExpenses + cumulativeCarry,
+      totalGrossProfit: grossValue - fundSizeM,
+      netProfit: netValue - fundSizeM,
+      deployedCapitalTarget,
+      deploymentRate,
+      cumulativeCalledCapital
+    },
+    grossCashFlows,
+    netCashFlows,
+    totalQuarters
+  };
+};
+
 // ============================================================================
 // MASTER DASHBOARD - The Big Picture
 // ============================================================================
 
-const MasterDashboard = () => {
+const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMultipleChange, sectionId } = {}) => {
+  const DEFAULTS = {
+    fundSize: 500,
+    fundLife: 12,
+    investmentPeriod: 5,
+    mgmtFeeRate: 0.02,
+    expenseRate: 0.005,
+    carryRate: 0.20,
+    hurdleRate: 0.08,
+    grossMultipleTarget: BASELINE_GROSS_TVPI
+  };
+
   // Fund structure inputs
-  const [fundSize, setFundSize] = useState(500);
-  const [fundLife, setFundLife] = useState(12); // 12 years
-  const [investmentPeriod, setInvestmentPeriod] = useState(5); // 5 years to full deployment
+  const [fundSize, setFundSize] = useState(DEFAULTS.fundSize);
+  const [fundLife, setFundLife] = useState(DEFAULTS.fundLife); // 12 years
+  const [investmentPeriod, setInvestmentPeriod] = useState(DEFAULTS.investmentPeriod); // 5 years to full deployment
 
   // Fee structure inputs
-  const [mgmtFeeRate, setMgmtFeeRate] = useState(0.02);       // 2% management fee
-  const [expenseRate, setExpenseRate] = useState(0.005);      // 50bps expenses
-  const [carryRate, setCarryRate] = useState(0.20);           // 20% carried interest
-  const [hurdleRate, setHurdleRate] = useState(0.08);         // 8% preferred return
+  const [mgmtFeeRate, setMgmtFeeRate] = useState(DEFAULTS.mgmtFeeRate);       // 2% management fee
+  const [expenseRate, setExpenseRate] = useState(DEFAULTS.expenseRate);      // 50bps expenses
+  const [carryRate, setCarryRate] = useState(DEFAULTS.carryRate);           // 20% carried interest
+  const [hurdleRate, setHurdleRate] = useState(DEFAULTS.hurdleRate);         // 8% preferred return
 
-  // Performance input - GROSS multiple is the driver, net is derived using empirical formula
-  const [grossMultipleTarget, setGrossMultipleTarget] = useState(2.5); // Baseline anchor: 2.5x gross → 2.0x net
+  // Performance input can be globally linked, with safe local fallback.
+  const [localGrossMultipleTarget, setLocalGrossMultipleTarget] = useState(BASELINE_GROSS_TVPI);
+  const grossMultipleTarget = globalGrossMultiple ?? localGrossMultipleTarget;
+  const setGrossMultipleTarget = onGrossMultipleChange ?? setLocalGrossMultipleTarget;
+  const resetMasterDashboard = () => {
+    setFundSize(DEFAULTS.fundSize);
+    setFundLife(DEFAULTS.fundLife);
+    setInvestmentPeriod(DEFAULTS.investmentPeriod);
+    setMgmtFeeRate(DEFAULTS.mgmtFeeRate);
+    setExpenseRate(DEFAULTS.expenseRate);
+    setCarryRate(DEFAULTS.carryRate);
+    setHurdleRate(DEFAULTS.hurdleRate);
+    setGrossMultipleTarget(DEFAULTS.grossMultipleTarget);
+  };
 
   // Calculate everything from GROSS down to NET
   const calculations = useMemo(() => {
-    const fundSizeM = fundSize * 1e6; // Convert to actual dollars
-
-    // =========================================================================
-    // STEP 1: Generate time-scaled GROSS cash flows
-    // =========================================================================
-    const grossQuarterlyData = generateQuarterlyData(fundLife, investmentPeriod, grossMultipleTarget);
-    const totalQuarters = fundLife * 4;
-
-    // Gross cash flows (fund level - investments and distributions)
-    const grossCashFlows = [];
-    grossQuarterlyData.forEach((q) => {
-      if (q.capitalCall > 0) {
-        grossCashFlows.push({ period: q.quarter, amount: -q.capitalCall * fundSizeM });
-      }
-      if (q.distribution > 0) {
-        grossCashFlows.push({ period: q.quarter, amount: q.distribution * fundSizeM });
-      }
+    const fundSizeM = fundSize * 1e6;
+    const model = buildQuarterlySchedule({
+      fundSizeM,
+      fundLife,
+      investmentPeriod,
+      grossMultiple: grossMultipleTarget,
+      mgmtFeeRate,
+      expenseRate,
+      carryRate,
+      hurdleRate
     });
 
-    // GROSS IRR - based purely on investment performance, independent of fees
-    const grossIRR = grossCashFlows.length > 2 ? calculateIRR(grossCashFlows, 4) : 0;
-    const grossMultiple = grossMultipleTarget;
-    const grossValue = fundSizeM * grossMultiple;
-    const totalGrossProfit = grossValue - fundSizeM;
+    const { schedule, totals } = model;
+    const quarterlyData = schedule.map((q) => ({
+      quarter: q.quarter,
+      year: q.year,
+      capitalCall: q.capitalCall,
+      grossDistribution: q.grossDistribution,
+      netDistribution: q.netDistribution,
+      cumulativeDrawdown: q.drawdownPct * fundSizeM,
+      cumulativeGrossDPI: q.cumulativeGrossDist,
+      cumulativeNetDPI: q.cumulativeNetDist - q.cumulativeMgmtFees - q.cumulativeExpenses,
+      nav: q.nav,
+      isInvestmentPeriod: q.isInvestmentPeriod
+    }));
 
-    // =========================================================================
-    // STEP 2: Calculate management fees and expenses (LP additional costs)
-    // =========================================================================
-    let totalMgmtFees = 0;
-    let totalExpenses = 0;
-    const yearlyFeeData = [];
-
+    const yearlyData = [];
     for (let year = 1; year <= fundLife; year++) {
-      const quarter = year * 4;
-      const isInvPeriod = year <= investmentPeriod;
-
-      // Management fee rate (often steps down after investment period)
-      const effectiveFeeRate = isInvPeriod ? mgmtFeeRate : mgmtFeeRate * 0.75;
-
-      // Fee basis: committed capital during investment period,
-      // then remaining invested capital (declining as distributions occur)
-      let feeBasis;
-      if (isInvPeriod) {
-        feeBasis = fundSizeM; // Committed capital
-      } else {
-        // Find cumulative DPI at this point to reduce basis
-        const qData = grossQuarterlyData.find(q => q.quarter === quarter) ||
-                      grossQuarterlyData[grossQuarterlyData.length - 1];
-        const distributedPortion = Math.min(qData.dpi / grossMultiple, 0.9);
-        feeBasis = fundSizeM * (1 - distributedPortion);
-      }
-
-      const fee = feeBasis * effectiveFeeRate;
-      totalMgmtFees += fee;
-
-      // Expenses: typically higher during investment period
-      const effectiveExpenseRate = isInvPeriod ? expenseRate : expenseRate * 0.4;
-      const expense = feeBasis * effectiveExpenseRate;
-      totalExpenses += expense;
-
-      yearlyFeeData.push({
+      const startQ = (year - 1) * 4 + 1;
+      const endQ = year * 4;
+      const yearRows = schedule.filter((q) => q.quarter >= startQ && q.quarter <= endQ);
+      const lastRow = yearRows[yearRows.length - 1];
+      yearlyData.push({
         year,
-        fee,
-        expense,
-        cumulativeFees: totalMgmtFees,
-        cumulativeExpenses: totalExpenses,
-        isInvestmentPeriod: isInvPeriod
+        fee: yearRows.reduce((sum, q) => sum + q.mgmtFee, 0),
+        expense: yearRows.reduce((sum, q) => sum + q.expense, 0),
+        cumulativeFees: lastRow ? lastRow.cumulativeMgmtFees : 0,
+        cumulativeExpenses: lastRow ? lastRow.cumulativeExpenses : 0,
+        isInvestmentPeriod: year <= investmentPeriod
       });
     }
 
-    const totalFeesAndExpenses = totalMgmtFees + totalExpenses;
-
-    // =========================================================================
-    // STEP 3: Calculate NET multiple using empirical formula
-    // =========================================================================
-
-    // Baseline calibration anchor:
-    // 2.5x gross TVPI should map to 2.0x net TVPI (0.5x drag).
-    // Drag then scales with gross outcomes around that anchor.
-    const BASE_GROSS_TVPI = 2.5;
-    const BASE_NET_TVPI = 2.0;
-    const DRAG_SLOPE = 0.24;
-    const anchoredBaseDrag = BASE_GROSS_TVPI - BASE_NET_TVPI;
-    const empiricalFeeDrag = anchoredBaseDrag + DRAG_SLOPE * (grossMultiple - BASE_GROSS_TVPI);
-    const netMultiple = grossMultiple - Math.max(0, empiricalFeeDrag);
-    const netDistributions = netMultiple * fundSizeM;
-    const netProfit = netDistributions - fundSizeM;
-
-    // Total drag in dollars
-    const totalDrag = grossValue - netDistributions;
-
-    // =========================================================================
-    // STEP 4: Allocate drag to fees, expenses, and carry for waterfall display
-    // =========================================================================
-
-    // Hurdle calculation for display
-    const avgHoldPeriod = fundLife * 0.6;
-    const hurdleAmount = fundSizeM * (Math.pow(1 + hurdleRate, avgHoldPeriod) - 1);
-    const hurdleCleared = totalGrossProfit > hurdleAmount;
-
-    // Allocate drag proportionally based on typical breakdown:
-    // - Management fees: ~40% of drag (2% annually on committed)
-    // - Expenses: ~10% of drag (0.5% annually)
-    // - Carry: ~50% of drag (20% of profits)
-    // But adjust based on actual fee parameters relative to base case (2/20/0.5%)
-    const baseMgmtFee = 0.02;
-    const baseExpense = 0.005;
-    const baseCarry = 0.20;
-
-    // Weight by deviation from base case
-    const mgmtWeight = mgmtFeeRate / baseMgmtFee;
-    const expenseWeight = expenseRate / baseExpense;
-    const carryWeight = carryRate / baseCarry;
-    const totalWeight = mgmtWeight * 0.4 + expenseWeight * 0.1 + carryWeight * 0.5;
-
-    // Allocate drag
-    const mgmtShare = (mgmtWeight * 0.4) / totalWeight;
-    const expenseShare = (expenseWeight * 0.1) / totalWeight;
-    const carryShare = (carryWeight * 0.5) / totalWeight;
-
-    // Use calculated fees for display but ensure they sum to total drag
-    const displayMgmtFees = Math.min(totalMgmtFees, totalDrag * mgmtShare);
-    const displayExpenses = Math.min(totalExpenses, totalDrag * expenseShare);
-    const carry = totalDrag - displayMgmtFees - displayExpenses;
-
-    // =========================================================================
-    // STEP 5: Build net cash flows for IRR calculation
-    // =========================================================================
-
-    const netCashFlows = [];
-
-    // LP capital calls - same timing as gross
-    grossQuarterlyData.forEach((q) => {
-      if (q.capitalCall > 0) {
-        netCashFlows.push({ period: q.quarter, amount: -q.capitalCall * fundSizeM });
-      }
-    });
-
-    // LP distributions (gross distributions minus total drag, spread proportionally)
-    // Net/Gross ratio based on empirical formula
-    const netToGrossRatio = grossValue > 0 ? netDistributions / grossValue : 1;
-    grossQuarterlyData.forEach((q) => {
-      if (q.distribution > 0) {
-        const grossDist = q.distribution * fundSizeM;
-        const netDist = grossDist * netToGrossRatio;
-        netCashFlows.push({ period: q.quarter, amount: netDist });
-      }
-    });
-
-    // Sort by period and calculate NET IRR
-    netCashFlows.sort((a, b) => a.period - b.period);
-    const netIRR = netCashFlows.length > 2 ? calculateIRR(netCashFlows, 4) : 0;
-
-    // =========================================================================
-    // STEP 6: Build data for visualizations
-    // =========================================================================
-
-    // Quarterly data for charts (showing both gross and net perspectives)
-    const quarterlyData = grossQuarterlyData.map((gq) => {
-      return {
-        quarter: gq.quarter,
-        year: gq.year,
-        capitalCall: gq.capitalCall * fundSizeM,
-        grossDistribution: gq.distribution * fundSizeM,
-        netDistribution: gq.distribution * fundSizeM * netToGrossRatio,
-        cumulativeDrawdown: gq.drawdown * fundSizeM,
-        cumulativeGrossDPI: gq.dpi * fundSizeM,
-        cumulativeNetDPI: gq.dpi * fundSizeM * netToGrossRatio,
-        grossRvpi: gq.rvpi,
-        nav: gq.rvpi * fundSizeM,
-        grossTvpi: gq.dpi + gq.rvpi,
-        isInvestmentPeriod: gq.isInvestmentPeriod
-      };
-    });
-
-    // Total costs (empirical drag)
-    const totalCosts = totalDrag;
-
-    // Fee drag as percentage of gross profit
-    const feeDragPercent = totalGrossProfit > 0 ? (totalDrag / totalGrossProfit) * 100 : 0;
-
-    // Breakdown for waterfall visualization (using display values that sum to total drag)
     const breakdown = [
-      { label: 'LP Capital', value: fundSizeM, color: '#4ECDC4' },
-      { label: 'Gross Profit', value: totalGrossProfit, color: '#6BCB77' },
-      { label: 'Mgmt Fees', value: displayMgmtFees, color: '#FF6B6B', isDeduction: true },
-      { label: 'Expenses', value: displayExpenses, color: '#FF8E53', isDeduction: true },
-      { label: 'GP Carry', value: carry, color: '#FFD93D', isDeduction: true },
-      { label: 'LP Net', value: netDistributions, color: '#4ECDC4' },
+      { label: 'LP Capital', value: fundSizeM, color: '#1B2A4A' },
+      { label: 'Gross Profit', value: totals.totalGrossProfit, color: '#2D6B4F' },
+      { label: 'Mgmt Fees', value: totals.totalMgmtFees, color: '#B5473A', isDeduction: true },
+      { label: 'Expenses', value: totals.totalExpenses, color: '#D4A017', isDeduction: true },
+      { label: 'GP Carry', value: totals.carry, color: '#C9A84C', isDeduction: true },
+      { label: 'LP Net', value: totals.netValue, color: '#1B2A4A' },
     ];
 
+    const avgHoldPeriod = fundLife * 0.6;
+    const hurdleAmount = totals.cumulativeCalledCapital * (Math.pow(1 + hurdleRate, avgHoldPeriod) - 1);
+    const hurdleCleared = (totals.grossValue - totals.cumulativeCalledCapital) > hurdleAmount;
+    const feeDragPercent = totals.totalGrossProfit > 0 ? (totals.totalCosts / totals.totalGrossProfit) * 100 : 0;
+
     return {
-      // Fee totals (display values)
-      totalMgmtFees: displayMgmtFees,
-      totalExpenses: displayExpenses,
-      totalFeesAndExpenses: displayMgmtFees + displayExpenses,
-      carry,
-      totalCosts,
-      // Values
-      grossValue,
-      netValue: netDistributions,
-      // Multiples
-      grossMultiple,
-      netMultiple,
-      // IRRs
-      grossIRR,
-      netIRR,
-      // Other
-      hurdleCleared,
+      ...totals,
+      totalFeesAndExpenses: totals.totalMgmtFees + totals.totalExpenses,
       hurdleAmount,
+      hurdleCleared,
       feeDragPercent,
-      yearlyData: yearlyFeeData,
+      yearlyData,
       quarterlyData,
+      schedule,
       breakdown,
-      totalGrossProfit,
-      netProfit,
-      // For display
       fundSizeM,
-      totalDrag
+      totalDrag: totals.totalCosts
     };
   }, [fundSize, mgmtFeeRate, expenseRate, carryRate, hurdleRate, grossMultipleTarget, fundLife, investmentPeriod]);
 
@@ -880,7 +1251,7 @@ const MasterDashboard = () => {
     ) * 1.15;
 
     // Draw grid
-    ctx.strokeStyle = '#dfe7f2';
+    ctx.strokeStyle = '#E8E6E1';
     ctx.lineWidth = 1;
     for (let i = 0; i <= 5; i++) {
       const y = padding.top + (i / 5) * chartHeight;
@@ -890,14 +1261,14 @@ const MasterDashboard = () => {
       ctx.stroke();
 
       const val = maxValue - (i / 5) * maxValue;
-      ctx.fillStyle = '#6f819d';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '11px Helvetica Neue';
       ctx.textAlign = 'right';
       ctx.fillText(formatCurrency(val, 0), padding.left - 10, y + 4);
     }
 
     // Draw contributed capital line (drawdown)
-    ctx.strokeStyle = '#4ECDC4';
+    ctx.strokeStyle = '#1B2A4A';
     ctx.lineWidth = 2;
     ctx.setLineDash([5, 5]);
     ctx.beginPath();
@@ -911,7 +1282,7 @@ const MasterDashboard = () => {
     ctx.setLineDash([]);
 
     // Draw NAV + Distributions line (total value)
-    ctx.strokeStyle = '#6BCB77';
+    ctx.strokeStyle = '#2D6B4F';
     ctx.lineWidth = 3;
     ctx.beginPath();
     quarterlyData.forEach((q, i) => {
@@ -924,7 +1295,7 @@ const MasterDashboard = () => {
     ctx.stroke();
 
     // Draw distributions area (DPI)
-    ctx.fillStyle = 'rgba(78, 205, 196, 0.2)';
+    ctx.fillStyle = 'rgba(74, 123, 167, 0.18)';
     ctx.beginPath();
     ctx.moveTo(padding.left, padding.top + chartHeight);
     quarterlyData.forEach((q) => {
@@ -939,7 +1310,7 @@ const MasterDashboard = () => {
     // Investment period marker
     const ipQuarter = investmentPeriod * 4;
     const ipX = padding.left + (ipQuarter / totalQuarters) * chartWidth;
-    ctx.strokeStyle = '#FFD93D';
+    ctx.strokeStyle = '#C9A84C';
     ctx.lineWidth = 1;
     ctx.setLineDash([3, 3]);
     ctx.beginPath();
@@ -948,7 +1319,7 @@ const MasterDashboard = () => {
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.fillStyle = '#FFD93D';
+    ctx.fillStyle = '#C9A84C';
     ctx.font = '10px Helvetica Neue';
     ctx.textAlign = 'center';
     ctx.fillText('Inv. Period Ends', ipX, padding.top - 10);
@@ -957,7 +1328,7 @@ const MasterDashboard = () => {
     const totalYears = Math.ceil(totalQuarters / 4);
     for (let year = 0; year <= totalYears; year += 2) {
       const x = padding.left + (year * 4 / totalQuarters) * chartWidth;
-      ctx.fillStyle = '#6f819d';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '11px Helvetica Neue';
       ctx.textAlign = 'center';
       ctx.fillText(`Yr ${year}`, x, height - padding.bottom + 25);
@@ -965,28 +1336,28 @@ const MasterDashboard = () => {
 
     // Legend
     const legendY = height - 25;
-    ctx.fillStyle = '#4ECDC4';
+    ctx.fillStyle = '#1B2A4A';
     ctx.fillRect(padding.left, legendY, 15, 3);
     ctx.setLineDash([3, 3]);
-    ctx.strokeStyle = '#4ECDC4';
+    ctx.strokeStyle = '#1B2A4A';
     ctx.beginPath();
     ctx.moveTo(padding.left, legendY + 1.5);
     ctx.lineTo(padding.left + 15, legendY + 1.5);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = '#5d6f89';
+    ctx.fillStyle = '#9A9690';
     ctx.font = '11px Helvetica Neue';
     ctx.textAlign = 'left';
     ctx.fillText('Capital Calls', padding.left + 22, legendY + 5);
 
-    ctx.fillStyle = '#6BCB77';
+    ctx.fillStyle = '#2D6B4F';
     ctx.fillRect(padding.left + 120, legendY, 15, 3);
-    ctx.fillStyle = '#5d6f89';
+    ctx.fillStyle = '#9A9690';
     ctx.fillText('NAV + DPI', padding.left + 142, legendY + 5);
 
-    ctx.fillStyle = 'rgba(78, 205, 196, 0.4)';
+    ctx.fillStyle = 'rgba(74, 123, 167, 0.35)';
     ctx.fillRect(padding.left + 230, legendY - 3, 15, 10);
-    ctx.fillStyle = '#5d6f89';
+    ctx.fillStyle = '#9A9690';
     ctx.fillText('Distributions', padding.left + 252, legendY + 5);
 
   }, [calculations, fundLife, investmentPeriod, fundSize]);
@@ -1015,12 +1386,12 @@ const MasterDashboard = () => {
     const chartHeight = height - padding.top - padding.bottom;
 
     const stages = [
-      { label: 'LP Capital', value: calculations.fundSizeM, color: '#4ECDC4' },
-      { label: 'Gross Profit', value: calculations.totalGrossProfit, color: '#6BCB77' },
-      { label: 'Mgmt Fees', value: calculations.totalMgmtFees, color: '#FF6B6B', isDeduction: true },
-      { label: 'Expenses', value: calculations.totalExpenses, color: '#FF8E53', isDeduction: true },
-      { label: 'GP Carry', value: calculations.carry, color: '#FFD93D', isDeduction: true },
-      { label: 'LP Net', value: calculations.netValue, color: '#4ECDC4' },
+      { label: 'LP Capital', value: calculations.fundSizeM, color: '#1B2A4A' },
+      { label: 'Gross Profit', value: calculations.totalGrossProfit, color: '#2D6B4F' },
+      { label: 'Mgmt Fees', value: calculations.totalMgmtFees, color: '#B5473A', isDeduction: true },
+      { label: 'Expenses', value: calculations.totalExpenses, color: '#D4A017', isDeduction: true },
+      { label: 'GP Carry', value: calculations.carry, color: '#C9A84C', isDeduction: true },
+      { label: 'LP Net', value: calculations.netValue, color: '#1B2A4A' },
     ];
 
     const maxValue = Math.max(calculations.fundSizeM + calculations.totalGrossProfit, calculations.netValue) * 1.1;
@@ -1075,14 +1446,14 @@ const MasterDashboard = () => {
       }
 
       // Value label
-      ctx.fillStyle = '#13233a';
+      ctx.fillStyle = '#1B2A4A';
       ctx.font = 'bold 11px Helvetica Neue';
       ctx.textAlign = 'center';
       const valueText = stage.isDeduction ? `-${formatCurrency(stage.value, 0)}` : formatCurrency(stage.value, 0);
       ctx.fillText(valueText, x + barWidth / 2, barTop - 8);
 
       // Stage label
-      ctx.fillStyle = '#5d6f89';
+      ctx.fillStyle = '#9A9690';
       ctx.font = '10px Helvetica Neue';
       ctx.textAlign = 'center';
       ctx.fillText(stage.label, x + barWidth / 2, height - padding.bottom + 20);
@@ -1091,12 +1462,17 @@ const MasterDashboard = () => {
   }, [calculations]);
 
   return (
-    <section className="master-dashboard">
+    <section id={sectionId} className="master-dashboard">
       <div className="dashboard-header">
-        <h1>The Economics of Private Equity</h1>
+        <h1>{asSynthesis ? "Let's Put It All Together" : 'The Economics of Private Equity'}</h1>
         <p className="dashboard-subtitle">
-          Drag the sliders to see how fund terms affect your returns
+          {asSynthesis
+            ? 'Final interactive synthesis: trace each term from gross performance to net LP outcome'
+            : 'Drag the sliders to see how fund terms affect your returns'}
         </p>
+        <div className="dashboard-actions">
+          <ResetButton onClick={resetMasterDashboard} label="Reset Dashboard" />
+        </div>
       </div>
 
       <div className="dashboard-grid">
@@ -1130,7 +1506,7 @@ const MasterDashboard = () => {
               step={1}
               label="Investment Period"
               format={(v) => `${v} years`}
-              accent="#FFD93D"
+              accent="#C9A84C"
             />
           </div>
 
@@ -1144,7 +1520,7 @@ const MasterDashboard = () => {
               step={0.001}
               label="Management Fee"
               format={(v) => formatPercent(v)}
-              accent="#FF6B6B"
+              accent="#B5473A"
             />
             <Slider
               value={expenseRate}
@@ -1154,7 +1530,7 @@ const MasterDashboard = () => {
               step={0.001}
               label="Fund Expenses"
               format={(v) => `${(v * 10000).toFixed(0)} bps`}
-              accent="#FF8E53"
+              accent="#D4A017"
             />
             <Slider
               value={carryRate}
@@ -1164,7 +1540,7 @@ const MasterDashboard = () => {
               step={0.01}
               label="Carried Interest"
               format={(v) => formatPercent(v)}
-              accent="#FFD93D"
+              accent="#C9A84C"
             />
             <Slider
               value={hurdleRate}
@@ -1174,7 +1550,7 @@ const MasterDashboard = () => {
               step={0.005}
               label="Hurdle Rate"
               format={(v) => formatPercent(v)}
-              accent="#6BCB77"
+              accent="#2D6B4F"
             />
           </div>
 
@@ -1188,7 +1564,7 @@ const MasterDashboard = () => {
               step={0.05}
               label="Gross Multiple"
               format={(v) => `${v.toFixed(2)}x`}
-              accent="#4ECDC4"
+              accent="#1B2A4A"
             />
           </div>
         </div>
@@ -1218,20 +1594,20 @@ const MasterDashboard = () => {
             <div className="metric-group-header">Returns</div>
             <div className="metric-large">
               <span className="metric-label">Gross Multiple</span>
-              <span className="metric-value" style={{ color: '#6BCB77' }}>{calculations.grossMultiple.toFixed(2)}x</span>
+              <span className="metric-value" style={{ color: '#2D6B4F' }}>{calculations.grossMultiple.toFixed(2)}x</span>
             </div>
             <div className="metric-large">
               <span className="metric-label">Net Multiple</span>
-              <span className="metric-value" style={{ color: '#4ECDC4' }}>{calculations.netMultiple.toFixed(2)}x</span>
+              <span className="metric-value" style={{ color: '#1B2A4A' }}>{calculations.netMultiple.toFixed(2)}x</span>
             </div>
             <div className="metric-divider"></div>
             <div className="metric-small">
               <span>Gross IRR</span>
-              <span style={{ color: '#6BCB77' }}>{formatPercent(calculations.grossIRR)}</span>
+              <span style={{ color: '#2D6B4F' }}>{formatPercent(calculations.grossIRR)}</span>
             </div>
             <div className="metric-small">
               <span>Net IRR</span>
-              <span style={{ color: '#4ECDC4' }}>{formatPercent(calculations.netIRR)}</span>
+              <span style={{ color: '#1B2A4A' }}>{formatPercent(calculations.netIRR)}</span>
             </div>
           </div>
 
@@ -1239,24 +1615,24 @@ const MasterDashboard = () => {
             <div className="metric-group-header">Fees, Expenses & Carry</div>
             <div className="metric-small">
               <span>Management Fees</span>
-              <span style={{ color: '#FF6B6B' }}>{formatCurrency(calculations.totalMgmtFees, 0)}</span>
+              <span style={{ color: '#B5473A' }}>{formatCurrency(calculations.totalMgmtFees, 0)}</span>
             </div>
             <div className="metric-small">
               <span>Fund Expenses</span>
-              <span style={{ color: '#FF8E53' }}>{formatCurrency(calculations.totalExpenses, 0)}</span>
+              <span style={{ color: '#D4A017' }}>{formatCurrency(calculations.totalExpenses, 0)}</span>
             </div>
             <div className="metric-small">
               <span>Carried Interest</span>
-              <span style={{ color: '#FFD93D' }}>{formatCurrency(calculations.carry, 0)}</span>
+              <span style={{ color: '#C9A84C' }}>{formatCurrency(calculations.carry, 0)}</span>
             </div>
             <div className="metric-divider"></div>
             <div className="metric-small">
               <span>Total Costs</span>
-              <span style={{ color: '#13233a' }}>{formatCurrency(calculations.totalCosts, 0)}</span>
+              <span style={{ color: '#1B2A4A' }}>{formatCurrency(calculations.totalCosts, 0)}</span>
             </div>
             <div className="metric-small highlight">
               <span>Cost Drag</span>
-              <span style={{ color: calculations.feeDragPercent > 30 ? '#FF6B6B' : '#5d6f89' }}>
+              <span style={{ color: calculations.feeDragPercent > 30 ? '#B5473A' : '#9A9690' }}>
                 {calculations.feeDragPercent.toFixed(1)}% of profits
               </span>
             </div>
@@ -1270,12 +1646,12 @@ const MasterDashboard = () => {
             </div>
             <div className="metric-small">
               <span>Net Distributions</span>
-              <span style={{ color: '#4ECDC4' }}>{formatCurrency(calculations.netValue, 0)}</span>
+              <span style={{ color: '#1B2A4A' }}>{formatCurrency(calculations.netValue, 0)}</span>
             </div>
             <div className="metric-divider"></div>
             <div className="metric-small">
               <span>Net Profit</span>
-              <span style={{ color: calculations.netProfit > 0 ? '#4ECDC4' : '#FF6B6B' }}>
+              <span style={{ color: calculations.netProfit > 0 ? '#1B2A4A' : '#B5473A' }}>
                 {formatCurrency(calculations.netProfit, 0)}
               </span>
             </div>
@@ -1289,34 +1665,107 @@ const MasterDashboard = () => {
 
       <div className="breakdown-transition">
         <div className="transition-line"></div>
-        <h2>Let's break it down.</h2>
+        <h2>{asSynthesis ? 'Every component now in one view.' : "Let's break it down."}</h2>
         <p>
-          The visualization above captures the full complexity of PE economics.
-          Below, we'll explore each component in detail—from management fees to carried interest,
-          from waterfall structures to the tradeoffs that shape LP returns.
+          {asSynthesis
+            ? 'This integrated model combines deployment timing, fees, expenses, carry, and waterfall mechanics so you can validate total net investor impact in one place.'
+            : 'The visualization above captures the full complexity of PE economics. Below, we\'ll explore each component in detail, from management fees to carried interest, and from waterfall structures to the tradeoffs that shape LP returns.'}
         </p>
       </div>
     </section>
   );
 };
 
-const HeroSection = () => (
-  <section className="hero-section" style={{ display: 'none' }}>
-    {/* Hidden - replaced by MasterDashboard */}
-  </section>
-);
-
-const IntroSection = () => {
-  const [grossReturn, setGrossReturn] = useState(2.0);
-
-  const netReturn = useMemo(() => {
-    // Simplified model: ~15% fee drag at 2x, scaling somewhat with returns
-    const feeDrag = 0.10 + (grossReturn - 1) * 0.08;
-    return Math.max(1, grossReturn - feeDrag);
-  }, [grossReturn]);
+const HeroSection = () => {
+  const baseline = useMemo(() => {
+    const fundSize = 1e6;
+    const data = generateQuarterlyData(
+      GROSS_BASE_CURVE.baseFundLife,
+      GROSS_BASE_CURVE.baseInvestmentPeriod,
+      GROSS_BASE_CURVE.baseGrossMultiple
+    );
+    const flows = [];
+    data.forEach((q) => {
+      if (q.capitalCall > 0) {
+        flows.push({ period: q.quarter, amount: -q.capitalCall * fundSize });
+      }
+      if (q.distribution > 0) {
+        flows.push({ period: q.quarter, amount: q.distribution * fundSize });
+      }
+    });
+    const grossIRR = flows.length > 2 ? calculateIRR(flows, 4) : 0;
+    return {
+      grossTVPI: GROSS_BASE_CURVE.baseGrossMultiple,
+      grossIRR,
+      netTVPI: 2.0,
+      netIRR: 0.15
+    };
+  }, []);
 
   return (
-    <section className="content-section">
+    <section id="hero-baseline" className="hero-section">
+      <div className="pathway-badge">Interactive Learning Model</div>
+      <h1>The Economics of Private Equity</h1>
+      <p className="hero-subtitle">A guide to getting from gross to net.</p>
+
+      <HeroGrossNetGraph />
+
+      <div className="metrics-row hero-metrics">
+        <MetricCard
+          label="Gross Baseline"
+          value={`${baseline.grossTVPI.toFixed(2)}x TVPI`}
+          subtext={`${formatPercent(baseline.grossIRR)} gross IRR`}
+          accent="#2D6B4F"
+        />
+        <MetricCard
+          label="Net Baseline"
+          value={`${baseline.netTVPI.toFixed(2)}x TVPI`}
+          subtext={`${formatPercent(baseline.netIRR)} net IRR target`}
+          accent="#1B2A4A"
+        />
+        <MetricCard
+          label="Interactive"
+          value="Use The Sliders"
+          subtext="Each section shows net investor impact"
+          accent="#C9A84C"
+        />
+      </div>
+
+      <p className="hero-scroll-note">Scroll down to build the gross-to-net bridge, one concept at a time.</p>
+    </section>
+  );
+};
+
+const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
+  const [localGrossReturn, setLocalGrossReturn] = useState(2.5);
+  const grossReturn = globalGrossMultiple ?? localGrossReturn;
+  const handleGrossChange = (value) => {
+    if (onGrossMultipleChange) {
+      onGrossMultipleChange(value);
+    } else {
+      setLocalGrossReturn(value);
+    }
+  };
+
+  const netReturn = useMemo(() => {
+    const model = buildQuarterlySchedule({
+      fundSizeM: BASELINE_MODEL_INPUTS.fundSize * 1e6,
+      fundLife: BASELINE_MODEL_INPUTS.fundLife,
+      investmentPeriod: BASELINE_MODEL_INPUTS.investmentPeriod,
+      grossMultiple: grossReturn,
+      mgmtFeeRate: BASELINE_MODEL_INPUTS.mgmtFeeRate,
+      expenseRate: BASELINE_MODEL_INPUTS.expenseRate,
+      carryRate: BASELINE_MODEL_INPUTS.carryRate,
+      hurdleRate: BASELINE_MODEL_INPUTS.hurdleRate,
+      deploymentRate: 1
+    });
+    return model.totals.netMultiple;
+  }, [grossReturn]);
+
+  const resetIntro = () => handleGrossChange(BASELINE_GROSS_TVPI);
+
+  return (
+    <section id="why-matters" className="content-section">
       <h2>Why This Matters</h2>
 
       <p>
@@ -1340,10 +1789,13 @@ const IntroSection = () => {
           <span className="block-title">From Gross to Net</span>
           <span className="block-subtitle">Drag to explore the relationship</span>
         </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetIntro} />
+        </div>
 
         <Slider
           value={grossReturn}
-          onChange={setGrossReturn}
+          onChange={handleGrossChange}
           min={1.0}
           max={3.5}
           step={0.05}
@@ -1361,13 +1813,13 @@ const IntroSection = () => {
             label="Net Return"
             value={`${netReturn.toFixed(2)}x`}
             subtext="What you actually receive"
-            accent="#FF6B6B"
+            accent="#B5473A"
           />
           <MetricCard
             label="Fee Drag"
             value={`${((grossReturn - netReturn) / (grossReturn - 1) * 100).toFixed(0)}%`}
             subtext="Of gross profits"
-            accent="#5d6f89"
+            accent="#9A9690"
           />
         </div>
       </div>
@@ -1389,13 +1841,30 @@ const IntroSection = () => {
 };
 
 const ManagementFeeSection = () => {
-  const [fundSize, setFundSize] = useState(500); // millions
-  const [feeRate, setFeeRate] = useState(0.02);
-  const [investmentPeriod, setInvestmentPeriod] = useState(5);
-  const [fundLife, setFundLife] = useState(12);
-  const [hasRateStepDown, setHasRateStepDown] = useState(true);
-  const [postInvestmentBasis, setPostInvestmentBasis] = useState('remaining'); // 'committed' or 'remaining'
+  const DEFAULTS = {
+    fundSize: 500,
+    feeRate: 0.02,
+    investmentPeriod: 5,
+    fundLife: 12,
+    hasRateStepDown: true,
+    postInvestmentBasis: 'remaining'
+  };
+  const [fundSize, setFundSize] = useState(DEFAULTS.fundSize); // millions
+  const [feeRate, setFeeRate] = useState(DEFAULTS.feeRate);
+  const [investmentPeriod, setInvestmentPeriod] = useState(DEFAULTS.investmentPeriod);
+  const [fundLife, setFundLife] = useState(DEFAULTS.fundLife);
+  const [hasRateStepDown, setHasRateStepDown] = useState(DEFAULTS.hasRateStepDown);
+  const [postInvestmentBasis, setPostInvestmentBasis] = useState(DEFAULTS.postInvestmentBasis); // 'committed' or 'remaining'
   const [showAssumptions, setShowAssumptions] = useState(false);
+  const resetManagementFee = () => {
+    setFundSize(DEFAULTS.fundSize);
+    setFeeRate(DEFAULTS.feeRate);
+    setInvestmentPeriod(DEFAULTS.investmentPeriod);
+    setFundLife(DEFAULTS.fundLife);
+    setHasRateStepDown(DEFAULTS.hasRateStepDown);
+    setPostInvestmentBasis(DEFAULTS.postInvestmentBasis);
+    setShowAssumptions(false);
+  };
 
   const feeData = useMemo(() => {
     const data = [];
@@ -1476,9 +1945,15 @@ const ManagementFeeSection = () => {
 
   const totalFees = feeData[feeData.length - 1].cumulativeFees;
   const feeAsPercentOfCommitment = totalFees / fundSize;
+  const baselineNetMultiple = 2.0;
+  const feeMultipleDrag = totalFees / fundSize;
+  const netAfterFeesOnly = Math.max(1.0, baselineNetMultiple - feeMultipleDrag);
+  const baselineNetIRR = Math.pow(baselineNetMultiple, 1 / fundLife) - 1;
+  const feeOnlyNetIRR = Math.pow(netAfterFeesOnly, 1 / fundLife) - 1;
+  const feeIRRDragBps = Math.max(0, (baselineNetIRR - feeOnlyNetIRR) * 10000);
 
   return (
-    <section className="content-section">
+    <section id="management-fees" className="content-section">
       <h2>Management Fees: The Steady Current</h2>
 
       <p>
@@ -1499,6 +1974,9 @@ const ManagementFeeSection = () => {
         <div className="block-header">
           <span className="block-title">Management Fee Calculator</span>
           <span className="block-subtitle">Explore how terms affect total fees</span>
+        </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetManagementFee} />
         </div>
 
         <div className="sliders-grid">
@@ -1589,13 +2067,37 @@ const ManagementFeeSection = () => {
           <MetricCard
             label="As % of Commitment"
             value={formatPercent(feeAsPercentOfCommitment)}
-            accent="#FF6B6B"
+            accent="#B5473A"
           />
           <MetricCard
             label="Average Annual Fee"
             value={formatCurrency((totalFees / fundLife) * 1e6, 0)}
-            accent="#5d6f89"
+            accent="#9A9690"
           />
+        </div>
+
+        <div className="net-impact-panel">
+          <div className="net-impact-title">Net Investor Impact</div>
+          <div className="metrics-row">
+            <MetricCard
+              label="Net Multiple Drag"
+              value={`${feeMultipleDrag.toFixed(2)}x`}
+              subtext="From management fees alone"
+              accent="#B5473A"
+            />
+            <MetricCard
+              label="Implied Net TVPI"
+              value={`${netAfterFeesOnly.toFixed(2)}x`}
+              subtext="Starting from 2.00x baseline"
+              accent="#1B2A4A"
+            />
+            <MetricCard
+              label="Net IRR Drag"
+              value={`${feeIRRDragBps.toFixed(0)} bps`}
+              subtext={`Over ${fundLife} years`}
+              accent="#9A9690"
+            />
+          </div>
         </div>
 
         <button
@@ -1683,19 +2185,31 @@ const ManagementFeeSection = () => {
 };
 
 const ExpensesSection = () => {
-  const [fundSize, setFundSize] = useState(500);
-  const [investmentPeriod, setInvestmentPeriod] = useState(5);
-  const [fundLife, setFundLife] = useState(10);
-  const [expenseRate, setExpenseRate] = useState(0.005);
+  const DEFAULTS = {
+    fundSize: 500,
+    investmentPeriod: 5,
+    fundLife: 10,
+    expenseRate: 0.005
+  };
+  const [fundSize, setFundSize] = useState(DEFAULTS.fundSize);
+  const [investmentPeriod, setInvestmentPeriod] = useState(DEFAULTS.investmentPeriod);
+  const [fundLife, setFundLife] = useState(DEFAULTS.fundLife);
+  const [expenseRate, setExpenseRate] = useState(DEFAULTS.expenseRate);
+  const resetExpenses = () => {
+    setFundSize(DEFAULTS.fundSize);
+    setInvestmentPeriod(DEFAULTS.investmentPeriod);
+    setFundLife(DEFAULTS.fundLife);
+    setExpenseRate(DEFAULTS.expenseRate);
+  };
 
   const expenseData = useMemo(() => {
     const categories = [
-      { name: 'Legal & Compliance', percent: 25, color: '#4ECDC4', description: 'Fund formation, transaction docs, regulatory filings' },
-      { name: 'Accounting & Audit', percent: 20, color: '#6BCB77', description: 'Annual audits, tax prep, fund administration' },
-      { name: 'Due Diligence', percent: 20, color: '#FFD93D', description: 'Third-party diligence providers, consultants' },
-      { name: 'Travel & Meetings', percent: 15, color: '#FF8E53', description: 'Deal sourcing, portfolio company visits, AGMs' },
-      { name: 'Insurance & Other', percent: 12, color: '#FF6B6B', description: 'D&O insurance, cybersecurity, bank fees' },
-      { name: 'Broken Deal Costs', percent: 8, color: '#5d6f89', description: 'Costs from deals that don\'t close' },
+      { name: 'Legal & Compliance', percent: 25, color: '#1B2A4A', description: 'Fund formation, transaction docs, regulatory filings' },
+      { name: 'Accounting & Audit', percent: 20, color: '#2D6B4F', description: 'Annual audits, tax prep, fund administration' },
+      { name: 'Due Diligence', percent: 20, color: '#C9A84C', description: 'Third-party diligence providers, consultants' },
+      { name: 'Travel & Meetings', percent: 15, color: '#D4A017', description: 'Deal sourcing, portfolio company visits, AGMs' },
+      { name: 'Insurance & Other', percent: 12, color: '#B5473A', description: 'D&O insurance, cybersecurity, bank fees' },
+      { name: 'Broken Deal Costs', percent: 8, color: '#9A9690', description: 'Costs from deals that don\'t close' },
     ];
 
     let totalExpenses = 0;
@@ -1733,8 +2247,15 @@ const ExpensesSection = () => {
     };
   }, [fundSize, investmentPeriod, fundLife, expenseRate]);
 
+  const baselineNetMultiple = 2.0;
+  const expenseMultipleDrag = expenseData.totalExpenses / fundSize;
+  const netAfterExpensesOnly = Math.max(1.0, baselineNetMultiple - expenseMultipleDrag);
+  const baselineNetIRR = Math.pow(baselineNetMultiple, 1 / fundLife) - 1;
+  const expenseOnlyNetIRR = Math.pow(netAfterExpensesOnly, 1 / fundLife) - 1;
+  const expenseIRRDragBps = Math.max(0, (baselineNetIRR - expenseOnlyNetIRR) * 10000);
+
   return (
-    <section className="content-section">
+    <section id="fund-expenses" className="content-section">
       <h2>Fund Expenses: The Hidden Layer</h2>
 
       <p>
@@ -1756,6 +2277,9 @@ const ExpensesSection = () => {
         <div className="block-header">
           <span className="block-title">Expense Breakdown</span>
           <span className="block-subtitle">Typical allocation of fund operating expenses</span>
+        </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetExpenses} />
         </div>
 
         <div className="expense-categories">
@@ -1797,7 +2321,7 @@ const ExpensesSection = () => {
             step={0.0005}
             label="Expense Rate (Inv. Period)"
             format={(v) => `${(v * 10000).toFixed(0)} bps`}
-            accent="#FF8E53"
+            accent="#D4A017"
           />
         </div>
 
@@ -1806,20 +2330,44 @@ const ExpensesSection = () => {
             label="Total Fund Expenses"
             value={formatCurrency(expenseData.totalExpenses * 1e6, 0)}
             subtext={`${expenseData.expenseAsPercentOfCommitment.toFixed(1)}% of commitment`}
-            accent="#FF8E53"
+            accent="#D4A017"
           />
           <MetricCard
             label="Investment Period"
             value={formatCurrency(expenseData.investmentPeriodExpenses * 1e6, 0)}
             subtext={`~${(expenseRate * 10000).toFixed(0)} bps annually`}
-            accent="#FF8E53"
+            accent="#D4A017"
           />
           <MetricCard
             label="Harvest Period"
             value={formatCurrency(expenseData.harvestPeriodExpenses * 1e6, 0)}
             subtext={`~${(expenseRate * 0.4 * 10000).toFixed(0)} bps annually`}
-            accent="#5d6f89"
+            accent="#9A9690"
           />
+        </div>
+
+        <div className="net-impact-panel">
+          <div className="net-impact-title">Net Investor Impact</div>
+          <div className="metrics-row">
+            <MetricCard
+              label="Net Multiple Drag"
+              value={`${expenseMultipleDrag.toFixed(2)}x`}
+              subtext="From fund expenses alone"
+              accent="#D4A017"
+            />
+            <MetricCard
+              label="Implied Net TVPI"
+              value={`${netAfterExpensesOnly.toFixed(2)}x`}
+              subtext="Starting from 2.00x baseline"
+              accent="#1B2A4A"
+            />
+            <MetricCard
+              label="Net IRR Drag"
+              value={`${expenseIRRDragBps.toFixed(0)} bps`}
+              subtext={`Over ${fundLife} years`}
+              accent="#9A9690"
+            />
+          </div>
         </div>
       </div>
 
@@ -1877,11 +2425,23 @@ const ExpensesSection = () => {
 };
 
 const CarrySection = () => {
+  const DEFAULTS = {
+    fundIRR: 0.15,
+    carryRate: 0.20,
+    hurdleRate: 0.08,
+    holdPeriod: 5
+  };
   const [fundSize] = useState(500);
-  const [fundIRR, setFundIRR] = useState(0.15); // LP's actual IRR
-  const [carryRate, setCarryRate] = useState(0.20);
-  const [hurdleRate, setHurdleRate] = useState(0.08);
-  const [holdPeriod, setHoldPeriod] = useState(5);
+  const [fundIRR, setFundIRR] = useState(DEFAULTS.fundIRR); // LP's actual IRR
+  const [carryRate, setCarryRate] = useState(DEFAULTS.carryRate);
+  const [hurdleRate, setHurdleRate] = useState(DEFAULTS.hurdleRate);
+  const [holdPeriod, setHoldPeriod] = useState(DEFAULTS.holdPeriod);
+  const resetCarry = () => {
+    setFundIRR(DEFAULTS.fundIRR);
+    setCarryRate(DEFAULTS.carryRate);
+    setHurdleRate(DEFAULTS.hurdleRate);
+    setHoldPeriod(DEFAULTS.holdPeriod);
+  };
 
   const waterfallData = useMemo(() => {
     // Work backwards from IRR to get gross multiple
@@ -1919,7 +2479,7 @@ const CarrySection = () => {
       label: 'Return of Capital',
       value: fundSize,
       cumulative: fundSize,
-      color: '#4ECDC4',
+      color: '#1B2A4A',
       isIncrease: true,
       valueLabel: formatCurrency(fundSize * 1e6, 0)
     });
@@ -1932,7 +2492,7 @@ const CarrySection = () => {
           label: 'Preferred Return',
           value: prefReturn,
           cumulative: fundSize + prefReturn,
-          color: '#4ECDC4',
+          color: '#1B2A4A',
           isIncrease: true,
           valueLabel: formatCurrency(prefReturn * 1e6, 0)
         });
@@ -1943,7 +2503,7 @@ const CarrySection = () => {
             label: 'GP Carry (20%)',
             value: gpCarry,
             cumulative: fundSize + prefReturn + gpCarry,
-            color: '#FF6B6B',
+            color: '#B5473A',
             isIncrease: true,
             valueLabel: formatCurrency(gpCarry * 1e6, 0)
           });
@@ -1956,7 +2516,7 @@ const CarrySection = () => {
             label: 'LP Profit Share',
             value: remainingLPProfit,
             cumulative: fundSize + lpProfit + gpCarry,
-            color: '#4ECDC4',
+            color: '#1B2A4A',
             isIncrease: true,
             valueLabel: formatCurrency(remainingLPProfit * 1e6, 0)
           });
@@ -1967,7 +2527,7 @@ const CarrySection = () => {
           label: 'LP Profit (No Carry)',
           value: totalProfit,
           cumulative: fundSize + totalProfit,
-          color: '#4ECDC4',
+          color: '#1B2A4A',
           isIncrease: true,
           valueLabel: formatCurrency(totalProfit * 1e6, 0)
         });
@@ -1990,7 +2550,7 @@ const CarrySection = () => {
   const lpNetIRR = Math.pow(waterfallData.lpTotal / fundSize, 1 / holdPeriod) - 1;
 
   return (
-    <section className="content-section">
+    <section id="carried-interest" className="content-section">
       <h2>Carried Interest: The Performance Incentive</h2>
 
       <p>
@@ -2012,6 +2572,9 @@ const CarrySection = () => {
           <span className="block-title">The Distribution Waterfall</span>
           <span className="block-subtitle">Drag IRR below the hurdle to see carry disappear</span>
         </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetCarry} />
+        </div>
 
         <div className="sliders-grid">
           <Slider
@@ -2022,7 +2585,7 @@ const CarrySection = () => {
             step={0.005}
             label="Fund IRR (Gross)"
             format={(v) => formatPercent(v)}
-            accent={fundIRR >= hurdleRate ? '#4ECDC4' : '#FF6B6B'}
+            accent={fundIRR >= hurdleRate ? '#1B2A4A' : '#B5473A'}
           />
 
           <Slider
@@ -2033,7 +2596,7 @@ const CarrySection = () => {
             step={0.005}
             label="Hurdle Rate"
             format={(v) => formatPercent(v)}
-            accent="#FFD93D"
+            accent="#C9A84C"
           />
 
           <Slider
@@ -2071,11 +2634,11 @@ const CarrySection = () => {
 
         <div className="waterfall-legend">
           <div className="legend-item">
-            <span className="legend-color" style={{ backgroundColor: '#4ECDC4' }}></span>
+            <span className="legend-color" style={{ backgroundColor: '#1B2A4A' }}></span>
             <span>To LPs</span>
           </div>
           <div className="legend-item">
-            <span className="legend-color" style={{ backgroundColor: '#FF6B6B' }}></span>
+            <span className="legend-color" style={{ backgroundColor: '#B5473A' }}></span>
             <span>To GP (Carry)</span>
           </div>
         </div>
@@ -2085,19 +2648,19 @@ const CarrySection = () => {
             label="LP Net Multiple"
             value={`${netMultiple.toFixed(2)}x`}
             subtext={`${formatPercent(lpNetIRR)} net IRR`}
-            accent="#4ECDC4"
+            accent="#1B2A4A"
           />
           <MetricCard
             label="GP Carry"
             value={formatCurrency(waterfallData.gpCarry * 1e6, 0)}
             subtext={waterfallData.hurdleCleared ? `${formatPercent(carryRate)} of profits` : 'Hurdle not met'}
-            accent={waterfallData.gpCarry > 0 ? '#FF6B6B' : '#8a99af'}
+            accent={waterfallData.gpCarry > 0 ? '#B5473A' : '#9A9690'}
           />
           <MetricCard
             label="Gross Multiple"
             value={`${waterfallData.grossMultiple.toFixed(2)}x`}
             subtext={`${formatPercent(fundIRR)} gross IRR`}
-            accent="#5d6f89"
+            accent="#9A9690"
           />
         </div>
       </div>
@@ -2140,10 +2703,17 @@ const CarrySection = () => {
   );
 };
 
-const WaterfallComparisonSection = () => {
+const WaterfallComparisonSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
+  const DEFAULT_EXIT_YEAR = 5;
   const [fundSize] = useState(500);
-  const [grossMultiple, setGrossMultiple] = useState(2.0);
-  const [exitYear, setExitYear] = useState(5);
+  const [localGrossMultiple, setLocalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
+  const grossMultiple = globalGrossMultiple ?? localGrossMultiple;
+  const setGrossMultiple = onGrossMultipleChange ?? setLocalGrossMultiple;
+  const [exitYear, setExitYear] = useState(DEFAULT_EXIT_YEAR);
+  const resetWaterfallComparison = () => {
+    setGrossMultiple(BASELINE_GROSS_TVPI);
+    setExitYear(DEFAULT_EXIT_YEAR);
+  };
 
   // Simulate European (whole-fund) vs American (deal-by-deal) waterfall
   const comparisonData = useMemo(() => {
@@ -2199,7 +2769,7 @@ const WaterfallComparisonSection = () => {
   }, [fundSize, grossMultiple, exitYear]);
 
   return (
-    <section className="content-section">
+    <section id="waterfall-structures" className="content-section">
       <h2>European vs. American Waterfalls</h2>
 
       <p>
@@ -2243,6 +2813,9 @@ const WaterfallComparisonSection = () => {
           <span className="block-title">Waterfall Comparison</span>
           <span className="block-subtitle">Same gross returns, different LP outcomes</span>
         </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetWaterfallComparison} />
+        </div>
 
         <div className="sliders-grid">
           <Slider
@@ -2273,12 +2846,12 @@ const WaterfallComparisonSection = () => {
               <MetricCard
                 label="LP Net Multiple"
                 value={`${comparisonData.european.multiple.toFixed(2)}x`}
-                accent="#4ECDC4"
+                accent="#1B2A4A"
               />
               <MetricCard
                 label="GP Carry"
                 value={formatCurrency(comparisonData.european.carry * 1e6, 0)}
-                accent="#5d6f89"
+                accent="#9A9690"
               />
             </div>
           </div>
@@ -2289,12 +2862,12 @@ const WaterfallComparisonSection = () => {
               <MetricCard
                 label="LP Net Multiple"
                 value={`${comparisonData.american.multiple.toFixed(2)}x`}
-                accent="#FF6B6B"
+                accent="#B5473A"
               />
               <MetricCard
                 label="GP Carry"
                 value={formatCurrency(comparisonData.american.carry * 1e6, 0)}
-                accent="#5d6f89"
+                accent="#9A9690"
               />
             </div>
           </div>
@@ -2313,6 +2886,9 @@ const WaterfallComparisonSection = () => {
           ) : (
             <span>Waterfalls produce equivalent results at this return level</span>
           )}
+          <p style={{ marginTop: '10px', marginBottom: 0, color: '#9A9690' }}>
+            Net IRR impact: {(Math.abs(comparisonData.european.irr - comparisonData.american.irr) * 10000).toFixed(0)} bps difference
+          </p>
         </div>
       </div>
 
@@ -2344,9 +2920,295 @@ const WaterfallComparisonSection = () => {
   );
 };
 
-const FeeTradeoffSection = () => {
-  const [grossMultiple, setGrossMultiple] = useState(2.0);
-  const [fundLife, setFundLife] = useState(5);
+const UnderinvestingSection = ({
+  globalGrossMultiple,
+  onGrossMultipleChange,
+  globalDeploymentRate,
+  onDeploymentRateChange
+} = {}) => {
+  const [localGrossMultiple, setLocalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
+  const [localDeploymentRate, setLocalDeploymentRate] = useState(1.0);
+  const grossMultiple = globalGrossMultiple ?? localGrossMultiple;
+  const setGrossMultiple = onGrossMultipleChange ?? setLocalGrossMultiple;
+  const deploymentRate = globalDeploymentRate ?? localDeploymentRate;
+  const setDeploymentRate = onDeploymentRateChange ?? setLocalDeploymentRate;
+  const resetUnderinvesting = () => {
+    setGrossMultiple(BASELINE_GROSS_TVPI);
+    setDeploymentRate(1.0);
+  };
+
+  const underinvestModel = useMemo(() => {
+    return buildQuarterlySchedule({
+      fundSizeM: BASELINE_MODEL_INPUTS.fundSize * 1e6,
+      fundLife: BASELINE_MODEL_INPUTS.fundLife,
+      investmentPeriod: BASELINE_MODEL_INPUTS.investmentPeriod,
+      grossMultiple,
+      mgmtFeeRate: BASELINE_MODEL_INPUTS.mgmtFeeRate,
+      expenseRate: BASELINE_MODEL_INPUTS.expenseRate,
+      carryRate: BASELINE_MODEL_INPUTS.carryRate,
+      hurdleRate: BASELINE_MODEL_INPUTS.hurdleRate,
+      deploymentRate
+    });
+  }, [grossMultiple, deploymentRate]);
+
+  const fullDeployModel = useMemo(() => {
+    return buildQuarterlySchedule({
+      fundSizeM: BASELINE_MODEL_INPUTS.fundSize * 1e6,
+      fundLife: BASELINE_MODEL_INPUTS.fundLife,
+      investmentPeriod: BASELINE_MODEL_INPUTS.investmentPeriod,
+      grossMultiple,
+      mgmtFeeRate: BASELINE_MODEL_INPUTS.mgmtFeeRate,
+      expenseRate: BASELINE_MODEL_INPUTS.expenseRate,
+      carryRate: BASELINE_MODEL_INPUTS.carryRate,
+      hurdleRate: BASELINE_MODEL_INPUTS.hurdleRate,
+      deploymentRate: 1.0
+    });
+  }, [grossMultiple]);
+
+  const grossOnCommitment = underinvestModel.totals.grossMultiple;
+  const netOnCommitment = underinvestModel.totals.netMultiple;
+  const spread = grossOnCommitment - netOnCommitment;
+  const fullSpread = fullDeployModel.totals.grossMultiple - fullDeployModel.totals.netMultiple;
+  const extraSpread = spread - fullSpread;
+  const netIrrDragBps = Math.max(0, (fullDeployModel.totals.netIRR - underinvestModel.totals.netIRR) * 10000);
+
+  return (
+    <section id="underinvesting-impact" className="content-section">
+      <h2>Underinvesting: Hidden Net Drag</h2>
+
+      <p>
+        A GP can underdeploy capital and still produce a strong gross multiple on invested dollars.
+        But from the LP perspective, fee load is still tied to commitment. That makes the gross-to-net
+        spread wider on a commitment basis and can materially reduce net IRR.
+      </p>
+
+      <div className="interactive-block">
+        <div className="block-header">
+          <span className="block-title">Deployment Efficiency Stress Test</span>
+          <span className="block-subtitle">Same gross MOIC on invested capital, different net LP outcomes</span>
+        </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetUnderinvesting} />
+        </div>
+
+        <div className="sliders-grid">
+          <Slider
+            value={grossMultiple}
+            onChange={setGrossMultiple}
+            min={1.0}
+            max={3.5}
+            step={0.05}
+            label="Gross MOIC (On Invested Capital)"
+            format={(v) => `${v.toFixed(2)}x`}
+          />
+          <Slider
+            value={deploymentRate}
+            onChange={setDeploymentRate}
+            min={0.6}
+            max={1.0}
+            step={0.01}
+            label="Deployment Rate"
+            format={(v) => `${(v * 100).toFixed(0)}%`}
+            accent="#C9A84C"
+          />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard
+            label="Gross TVPI (Commitment Basis)"
+            value={`${grossOnCommitment.toFixed(2)}x`}
+            subtext={`${(deploymentRate * 100).toFixed(0)}% deployed`}
+            accent="#2D6B4F"
+          />
+          <MetricCard
+            label="Net TVPI (Commitment Basis)"
+            value={`${netOnCommitment.toFixed(2)}x`}
+            subtext={`${formatPercent(underinvestModel.totals.netIRR)} net IRR`}
+            accent="#1B2A4A"
+          />
+          <MetricCard
+            label="Gross-to-Net Spread"
+            value={`${spread.toFixed(2)}x`}
+            subtext="On committed capital"
+            accent="#B5473A"
+          />
+        </div>
+
+        <div className="net-impact-panel">
+          <div className="net-impact-title">Net Investor Impact</div>
+          <div className="metrics-row">
+            <MetricCard
+              label="Extra Spread vs Full Deployment"
+              value={`${extraSpread > 0 ? '+' : ''}${extraSpread.toFixed(2)}x`}
+              subtext="Incremental underinvestment penalty"
+              accent="#B5473A"
+            />
+            <MetricCard
+              label="Net IRR Drag"
+              value={`${netIrrDragBps.toFixed(0)} bps`}
+              subtext="Versus 100% deployment at same gross MOIC"
+              accent="#9A9690"
+            />
+            <MetricCard
+              label="Fee+Expense Burden"
+              value={formatPercent((underinvestModel.totals.totalMgmtFees + underinvestModel.totals.totalExpenses) / Math.max(1, underinvestModel.totals.deployedCapitalTarget))}
+              subtext="As % of deployed capital"
+              accent="#C9A84C"
+            />
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const QuarterlyScheduleSection = ({
+  globalGrossMultiple,
+  onGrossMultipleChange,
+  globalDeploymentRate,
+  onDeploymentRateChange
+} = {}) => {
+  const [localGrossMultiple, setLocalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
+  const [localDeploymentRate, setLocalDeploymentRate] = useState(1.0);
+  const grossMultiple = globalGrossMultiple ?? localGrossMultiple;
+  const setGrossMultiple = onGrossMultipleChange ?? setLocalGrossMultiple;
+  const deploymentRate = globalDeploymentRate ?? localDeploymentRate;
+  const setDeploymentRate = onDeploymentRateChange ?? setLocalDeploymentRate;
+  const resetQuarterlySchedule = () => {
+    setGrossMultiple(BASELINE_GROSS_TVPI);
+    setDeploymentRate(1.0);
+  };
+
+  const model = useMemo(() => {
+    return buildQuarterlySchedule({
+      fundSizeM: BASELINE_MODEL_INPUTS.fundSize * 1e6,
+      fundLife: BASELINE_MODEL_INPUTS.fundLife,
+      investmentPeriod: BASELINE_MODEL_INPUTS.investmentPeriod,
+      grossMultiple,
+      mgmtFeeRate: BASELINE_MODEL_INPUTS.mgmtFeeRate,
+      expenseRate: BASELINE_MODEL_INPUTS.expenseRate,
+      carryRate: BASELINE_MODEL_INPUTS.carryRate,
+      hurdleRate: BASELINE_MODEL_INPUTS.hurdleRate,
+      deploymentRate
+    });
+  }, [grossMultiple, deploymentRate]);
+
+  return (
+    <section id="quarterly-schedule" className="content-section">
+      <h2>Quarterly Schedule (Source Of Truth)</h2>
+
+      <p>
+        This is the underlying schedule driving the model. Every row shows how deployment, fees,
+        expenses, distributions, NAV, and carry combine into LP net cash flow over time.
+      </p>
+
+      <div className="interactive-block">
+        <div className="block-header">
+          <span className="block-title">Model Controls</span>
+          <span className="block-subtitle">These controls are linked across sections</span>
+        </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetQuarterlySchedule} />
+        </div>
+
+        <div className="sliders-grid">
+          <Slider
+            value={grossMultiple}
+            onChange={setGrossMultiple}
+            min={1.0}
+            max={3.5}
+            step={0.05}
+            label="Gross MOIC (On Invested Capital)"
+            format={(v) => `${v.toFixed(2)}x`}
+          />
+          <Slider
+            value={deploymentRate}
+            onChange={setDeploymentRate}
+            min={0.6}
+            max={1.0}
+            step={0.01}
+            label="Deployment Rate"
+            format={(v) => `${(v * 100).toFixed(0)}%`}
+            accent="#C9A84C"
+          />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard
+            label="Gross TVPI"
+            value={`${model.totals.grossMultiple.toFixed(2)}x`}
+            subtext="Commitment basis"
+            accent="#2D6B4F"
+          />
+          <MetricCard
+            label="Net TVPI"
+            value={`${model.totals.netMultiple.toFixed(2)}x`}
+            subtext="After fees, expenses, and carry"
+            accent="#1B2A4A"
+          />
+          <MetricCard
+            label="Net IRR"
+            value={formatPercent(model.totals.netIRR)}
+            subtext="Quarterly cash-flow based"
+            accent="#C9A84C"
+          />
+        </div>
+
+        <div className="assumptions-table-container schedule-table-container">
+          <table className="assumptions-table schedule-table">
+            <thead>
+              <tr>
+                <th>Q</th>
+                <th>Yr</th>
+                <th>Drawdown</th>
+                <th>Capital Call</th>
+                <th>Fee Basis</th>
+                <th>Mgmt Fee</th>
+                <th>Expense</th>
+                <th>Gross Dist</th>
+                <th>Carry</th>
+                <th>Net Dist</th>
+                <th>NAV</th>
+                <th>Net CF</th>
+                <th>Cum Net CF</th>
+              </tr>
+            </thead>
+            <tbody>
+              {model.schedule.map((q) => (
+                <tr key={q.quarter} className={q.isInvestmentPeriod ? '' : 'post-investment'}>
+                  <td>{q.quarter}</td>
+                  <td>{q.year.toFixed(2)}</td>
+                  <td>{formatPercent(q.drawdownPct, 1)}</td>
+                  <td>{formatCurrency(q.capitalCall, 0)}</td>
+                  <td>{formatCurrency(q.feeBasis, 0)}</td>
+                  <td>{formatCurrency(q.mgmtFee, 1)}</td>
+                  <td>{formatCurrency(q.expense, 1)}</td>
+                  <td>{formatCurrency(q.grossDistribution, 0)}</td>
+                  <td>{formatCurrency(q.carry, 1)}</td>
+                  <td>{formatCurrency(q.netDistribution, 0)}</td>
+                  <td>{formatCurrency(q.nav, 0)}</td>
+                  <td>{formatCurrency(q.netCF, 0)}</td>
+                  <td>{formatCurrency(q.cumulativeNetCF, 0)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
+  const DEFAULT_FUND_LIFE = 5;
+  const [localGrossMultiple, setLocalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
+  const grossMultiple = globalGrossMultiple ?? localGrossMultiple;
+  const setGrossMultiple = onGrossMultipleChange ?? setLocalGrossMultiple;
+  const [fundLife, setFundLife] = useState(DEFAULT_FUND_LIFE);
+  const resetFeeTradeoff = () => {
+    setGrossMultiple(BASELINE_GROSS_TVPI);
+    setFundLife(DEFAULT_FUND_LIFE);
+  };
 
   // Compare 2/20 vs 1.5/25 vs 1/30
   const structures = useMemo(() => {
@@ -2378,9 +3240,9 @@ const FeeTradeoffSection = () => {
     };
 
     return {
-      twoTwenty: { ...calcNet(0.02, 0.20), label: '2% / 20%', color: '#4ECDC4' },
-      onePointFiveTwentyFive: { ...calcNet(0.015, 0.25), label: '1.5% / 25%', color: '#FFD93D' },
-      oneThirty: { ...calcNet(0.01, 0.30), label: '1% / 30%', color: '#FF6B6B' }
+      twoTwenty: { ...calcNet(0.02, 0.20), label: '2% / 20%', color: '#1B2A4A' },
+      onePointFiveTwentyFive: { ...calcNet(0.015, 0.25), label: '1.5% / 25%', color: '#C9A84C' },
+      oneThirty: { ...calcNet(0.01, 0.30), label: '1% / 30%', color: '#B5473A' }
     };
   }, [grossMultiple, fundLife]);
 
@@ -2410,33 +3272,13 @@ const FeeTradeoffSection = () => {
     return 4.0;
   }, [fundLife]);
 
-  // Build comparison series
-  const seriesData = useMemo(() => {
-    const multiples = [];
-    const net220 = [];
-    const net130 = [];
-
-    for (let m = 1.0; m <= 3.5; m += 0.1) {
-      const fundSize = 100;
-      const mgmtFees220 = fundSize * 0.02 * fundLife * 0.8;
-      const mgmtFees130 = fundSize * 0.01 * fundLife * 0.8;
-
-      const invested220 = fundSize - mgmtFees220;
-      const invested130 = fundSize - mgmtFees130;
-
-      const profit220 = Math.max(0, invested220 * m - fundSize);
-      const profit130 = Math.max(0, invested130 * m - fundSize);
-
-      multiples.push(m);
-      net220.push((invested220 * m - profit220 * 0.20) / fundSize);
-      net130.push((invested130 * m - profit130 * 0.30) / fundSize);
-    }
-
-    return { multiples, net220, net130 };
-  }, [fundLife]);
+  const netOutcomes = Object.values(structures).map((s) => s.netMultiple);
+  const bestNet = Math.max(...netOutcomes);
+  const worstNet = Math.min(...netOutcomes);
+  const netSpread = bestNet - worstNet;
 
   return (
-    <section className="content-section">
+    <section id="fee-carry-tradeoff" className="content-section">
       <h2>The Fee/Carry Tradeoff</h2>
 
       <p>
@@ -2455,6 +3297,9 @@ const FeeTradeoffSection = () => {
         <div className="block-header">
           <span className="block-title">Fee Structure Comparison</span>
           <span className="block-subtitle">Finding the crossover point</span>
+        </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetFeeTradeoff} />
         </div>
 
         <div className="sliders-grid">
@@ -2502,6 +3347,30 @@ const FeeTradeoffSection = () => {
             </p>
           </div>
         </div>
+
+        <div className="net-impact-panel">
+          <div className="net-impact-title">Net Investor Impact</div>
+          <div className="metrics-row">
+            <MetricCard
+              label="Best Net TVPI"
+              value={`${bestNet.toFixed(2)}x`}
+              subtext="Most LP-favorable structure here"
+              accent="#1B2A4A"
+            />
+            <MetricCard
+              label="Worst Net TVPI"
+              value={`${worstNet.toFixed(2)}x`}
+              subtext="Least LP-favorable structure here"
+              accent="#B5473A"
+            />
+            <MetricCard
+              label="Net Spread"
+              value={`${netSpread.toFixed(2)}x`}
+              subtext="Pure fee-structure impact"
+              accent="#9A9690"
+            />
+          </div>
+        </div>
       </div>
 
       <h3>The Intuition</h3>
@@ -2533,7 +3402,9 @@ const FeeTradeoffSection = () => {
 };
 
 const AccruedCarrySection = () => {
-  const [yearlyReturns, setYearlyReturns] = useState([0.15, 0.20, -0.10, 0.25, 0.15]);
+  const DEFAULT_YEARLY_RETURNS = [0.15, 0.20, -0.10, 0.25, 0.15];
+  const [yearlyReturns, setYearlyReturns] = useState(DEFAULT_YEARLY_RETURNS);
+  const resetAccruedCarry = () => setYearlyReturns([...DEFAULT_YEARLY_RETURNS]);
 
   const updateReturn = (index, value) => {
     const newReturns = [...yearlyReturns];
@@ -2565,9 +3436,12 @@ const AccruedCarrySection = () => {
   }, [yearlyReturns]);
 
   const finalData = carryData[carryData.length - 1];
+  const lpNetMultiple = finalData.lpValue / 100;
+  const navMultiple = finalData.nav / 100;
+  const carryDragMultiple = Math.max(0, navMultiple - lpNetMultiple);
 
   return (
-    <section className="content-section">
+    <section id="accrued-carry" className="content-section">
       <h2>Accrued Carry and Down Years</h2>
 
       <p>
@@ -2587,6 +3461,9 @@ const AccruedCarrySection = () => {
           <span className="block-title">The Asymmetry of Accrued Carry</span>
           <span className="block-subtitle">Adjust annual returns to see the effect</span>
         </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetAccruedCarry} />
+        </div>
 
         <div className="returns-grid">
           {yearlyReturns.map((ret, i) => (
@@ -2600,7 +3477,7 @@ const AccruedCarrySection = () => {
                 step={0.05}
                 label=""
                 format={(v) => `${(v * 100).toFixed(0)}%`}
-                accent={ret >= 0 ? '#4ECDC4' : '#FF6B6B'}
+                accent={ret >= 0 ? '#1B2A4A' : '#B5473A'}
               />
             </div>
           ))}
@@ -2612,8 +3489,8 @@ const AccruedCarrySection = () => {
           labelA="LP Value"
           labelB="Accrued Carry"
           height={220}
-          colorA="#4ECDC4"
-          colorB="#FF6B6B"
+          colorA="#1B2A4A"
+          colorB="#B5473A"
         />
 
         <div className="metrics-row">
@@ -2622,16 +3499,40 @@ const AccruedCarrySection = () => {
             value={formatCurrency(finalData.nav * 1e6, 0)}
           />
           <MetricCard
-            label="LP Value"
-            value={formatCurrency(finalData.lpValue * 1e6, 0)}
-            subtext={`${(finalData.lpValue / 100).toFixed(2)}x`}
-            accent="#4ECDC4"
+            label="LP Net Multiple"
+            value={`${lpNetMultiple.toFixed(2)}x`}
+            subtext="Value after accrued carry"
+            accent="#1B2A4A"
           />
           <MetricCard
             label="Accrued Carry"
             value={formatCurrency(finalData.accruedCarry * 1e6, 0)}
-            accent="#FF6B6B"
+            accent="#B5473A"
           />
+        </div>
+
+        <div className="net-impact-panel">
+          <div className="net-impact-title">Net Investor Impact</div>
+          <div className="metrics-row">
+            <MetricCard
+              label="Gross NAV Multiple"
+              value={`${navMultiple.toFixed(2)}x`}
+              subtext="Before carry accrual"
+              accent="#2D6B4F"
+            />
+            <MetricCard
+              label="Net LP Multiple"
+              value={`${lpNetMultiple.toFixed(2)}x`}
+              subtext="After carry accrual"
+              accent="#1B2A4A"
+            />
+            <MetricCard
+              label="Carry Drag"
+              value={`${carryDragMultiple.toFixed(2)}x`}
+              subtext="Current gross-to-net gap"
+              accent="#B5473A"
+            />
+          </div>
         </div>
       </div>
 
@@ -2656,7 +3557,7 @@ const AccruedCarrySection = () => {
 };
 
 const ConclusionSection = () => (
-  <section className="content-section conclusion">
+  <section id="conclusion" className="content-section conclusion">
     <h2>The Complete Picture</h2>
 
     <p>
@@ -2700,6 +3601,9 @@ const ConclusionSection = () => (
 // ============================================================================
 
 export default function App() {
+  const [globalGrossMultiple, setGlobalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
+  const [globalDeploymentRate, setGlobalDeploymentRate] = useState(1.0);
+
   return (
     <div className="pe-fees-app">
       <style>{`
@@ -2710,13 +3614,131 @@ export default function App() {
           padding: 0;
         }
 
+        :root {
+          --pathway-navy: #1B2A4A;
+          --pathway-navy-dark: #0F1B33;
+          --pathway-navy-light: #2C3E5E;
+          --pathway-gold: #C9A84C;
+          --pathway-gold-dark: #A8892E;
+          --pathway-off-white: #F5F3EF;
+          --pathway-gray-light: #E8E6E1;
+          --pathway-gray: #9A9690;
+          --pathway-gray-dark: #4A4641;
+        }
+
         .pe-fees-app {
           font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-          background: #f4f7fb;
-          color: #1f2a3d;
+          background: #FFFFFF;
+          color: var(--pathway-gray-dark);
           min-height: 100vh;
           width: 100%;
           line-height: 1.7;
+        }
+
+        .app-shell {
+          display: grid;
+          grid-template-columns: 250px minmax(0, 1fr);
+          gap: 0;
+        }
+
+        .app-main {
+          min-width: 0;
+          background: #ffffff;
+        }
+
+        .app-main > section {
+          position: relative;
+        }
+
+        .app-main > section::before {
+          content: '';
+          position: absolute;
+          top: 0;
+          left: 40px;
+          right: 40px;
+          height: 1px;
+          background: linear-gradient(
+            90deg,
+            rgba(27, 42, 74, 0) 0%,
+            rgba(27, 42, 74, 0.2) 18%,
+            rgba(201, 168, 76, 0.28) 50%,
+            rgba(27, 42, 74, 0.2) 82%,
+            rgba(27, 42, 74, 0) 100%
+          );
+        }
+
+        .app-main > section:first-child::before {
+          display: none;
+        }
+
+        section[id] {
+          scroll-margin-top: 90px;
+        }
+
+        .side-nav {
+          position: sticky;
+          top: 72px;
+          align-self: start;
+          height: calc(100vh - 82px);
+          overflow-y: auto;
+          border-right: 1px solid #DDE4EF;
+          background: #ffffff;
+          padding: 22px 14px;
+        }
+
+        .side-nav-title {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 1.2px;
+          text-transform: uppercase;
+          color: #667088;
+          margin: 0 10px 12px;
+        }
+
+        .side-nav-links {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .side-nav-link {
+          display: grid;
+          grid-template-columns: 30px minmax(0, 1fr);
+          align-items: center;
+          text-decoration: none;
+          color: #647086;
+          font-size: 12px;
+          border-radius: 8px;
+          padding: 8px 10px;
+          border-right: 2px solid transparent;
+          transition: all 0.15s ease;
+        }
+
+        .side-nav-link:hover {
+          background: #F5F7FB;
+          color: var(--pathway-navy);
+        }
+
+        .side-nav-link.active {
+          background: #F1F4FA;
+          color: var(--pathway-navy-dark);
+          border-right-color: var(--pathway-gold);
+          font-weight: 600;
+        }
+
+        .side-nav-index {
+          font-family: 'SF Mono', 'Monaco', monospace;
+          font-size: 10px;
+          letter-spacing: 0.4px;
+          color: #8A93A7;
+        }
+
+        .side-nav-link.active .side-nav-index {
+          color: var(--pathway-gold-dark);
+        }
+
+        .side-nav-text {
+          line-height: 1.35;
         }
 
         /* Header */
@@ -2724,10 +3746,9 @@ export default function App() {
           position: sticky;
           top: 0;
           z-index: 100;
-          background: rgba(244, 247, 251, 0.92);
-          backdrop-filter: blur(10px);
-          border-bottom: 1px solid #dfe7f2;
-          padding: 16px 40px;
+          background: linear-gradient(90deg, var(--pathway-navy) 0%, var(--pathway-navy-dark) 100%);
+          border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+          padding: 14px 40px;
         }
 
         .header-content {
@@ -2750,7 +3771,7 @@ export default function App() {
           font-weight: 500;
           letter-spacing: 2px;
           text-transform: uppercase;
-          color: #4ECDC4;
+          color: #FFFFFF;
         }
 
         .header-nav {
@@ -2762,16 +3783,16 @@ export default function App() {
         .nav-tagline {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
-          color: #6f819d;
+          color: rgba(255, 255, 255, 0.72);
           letter-spacing: 1px;
           text-transform: uppercase;
         }
 
         /* Master Dashboard */
         .master-dashboard {
-          background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
-          padding: 60px 40px 40px;
-          border-bottom: 1px solid #dfe7f2;
+          background: #ffffff;
+          padding: 64px 40px 46px;
+          border-bottom: none;
         }
 
         .dashboard-header {
@@ -2782,14 +3803,20 @@ export default function App() {
         .dashboard-header h1 {
           font-size: clamp(32px, 5vw, 48px);
           font-weight: 300;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 12px;
           letter-spacing: -0.5px;
         }
 
         .dashboard-subtitle {
           font-size: 16px;
-          color: #5d6f89;
+          color: #667088;
+        }
+
+        .dashboard-actions {
+          margin-top: 14px;
+          display: flex;
+          justify-content: center;
         }
 
         .dashboard-grid {
@@ -2807,8 +3834,9 @@ export default function App() {
         }
 
         .control-group {
-          background: #dfe7f2;
-          border-radius: 8px;
+          background: #F7F9FD;
+          border: 1px solid #DEE5F0;
+          border-radius: 10px;
           padding: 20px;
         }
 
@@ -2817,10 +3845,10 @@ export default function App() {
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 1px;
-          color: #4ECDC4;
+          color: #1B2A4A;
           margin-bottom: 16px;
           padding-bottom: 8px;
-          border-bottom: 1px solid #c2cfde;
+          border-bottom: 1px solid #D9D5CF;
         }
 
         .dashboard-main {
@@ -2830,8 +3858,9 @@ export default function App() {
         }
 
         .viz-container {
-          background: #dfe7f2;
-          border-radius: 8px;
+          background: #F7F9FD;
+          border: 1px solid #DEE5F0;
+          border-radius: 10px;
           padding: 20px;
           flex: 1;
         }
@@ -2844,13 +3873,13 @@ export default function App() {
           display: block;
           font-size: 14px;
           font-weight: 500;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 4px;
         }
 
         .viz-subtitle {
           font-size: 12px;
-          color: #6f819d;
+          color: #9A9690;
         }
 
         .lifecycle-canvas {
@@ -2872,8 +3901,9 @@ export default function App() {
         }
 
         .metric-group {
-          background: #dfe7f2;
-          border-radius: 8px;
+          background: #F7F9FD;
+          border: 1px solid #DEE5F0;
+          border-radius: 10px;
           padding: 16px;
         }
 
@@ -2882,7 +3912,7 @@ export default function App() {
           font-weight: 600;
           text-transform: uppercase;
           letter-spacing: 1px;
-          color: #6f819d;
+          color: #9A9690;
           margin-bottom: 12px;
         }
 
@@ -2895,7 +3925,7 @@ export default function App() {
 
         .metric-large .metric-label {
           font-size: 13px;
-          color: #5d6f89;
+          color: #9A9690;
         }
 
         .metric-large .metric-value {
@@ -2909,7 +3939,7 @@ export default function App() {
           justify-content: space-between;
           align-items: center;
           font-size: 12px;
-          color: #5d6f89;
+          color: #9A9690;
           padding: 6px 0;
         }
 
@@ -2922,7 +3952,7 @@ export default function App() {
 
         .metric-divider {
           height: 1px;
-          background: #c2cfde;
+          background: #D9D5CF;
           margin: 8px 0;
         }
 
@@ -2935,15 +3965,15 @@ export default function App() {
         }
 
         .hurdle-badge.cleared {
-          background: rgba(78, 205, 196, 0.15);
-          border: 1px solid rgba(78, 205, 196, 0.3);
-          color: #4ECDC4;
+          background: rgba(45, 107, 79, 0.12);
+          border: 1px solid rgba(45, 107, 79, 0.28);
+          color: #1B2A4A;
         }
 
         .hurdle-badge.not-cleared {
-          background: rgba(255, 107, 107, 0.15);
-          border: 1px solid rgba(255, 107, 107, 0.3);
-          color: #FF6B6B;
+          background: rgba(181, 71, 58, 0.12);
+          border: 1px solid rgba(181, 71, 58, 0.28);
+          color: #B5473A;
         }
 
         .breakdown-transition {
@@ -2955,24 +3985,32 @@ export default function App() {
         .transition-line {
           width: 60px;
           height: 2px;
-          background: linear-gradient(90deg, #4ECDC4, #FFD93D);
+          background: linear-gradient(90deg, #1B2A4A, #C9A84C);
           margin: 0 auto 30px;
         }
 
         .breakdown-transition h2 {
           font-size: 32px;
           font-weight: 300;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 16px;
         }
 
         .breakdown-transition p {
           font-size: 16px;
-          color: #5d6f89;
+          color: #9A9690;
           line-height: 1.7;
         }
 
         @media (max-width: 1100px) {
+          .app-shell {
+            grid-template-columns: 1fr;
+          }
+
+          .side-nav {
+            display: none;
+          }
+
           .dashboard-grid {
             grid-template-columns: 1fr;
             max-width: 700px;
@@ -3005,8 +4043,11 @@ export default function App() {
         .hero-section {
           padding: 80px 40px;
           text-align: center;
-          background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 100%);
-          border-bottom: 1px solid #dfe7f2;
+          background:
+            radial-gradient(circle at 14% 12%, rgba(27, 42, 74, 0.12), transparent 40%),
+            radial-gradient(circle at 86% 18%, rgba(201, 168, 76, 0.22), transparent 34%),
+            linear-gradient(180deg, #ffffff 0%, #F7F8FB 62%, #F5F3EF 100%);
+          border-bottom: none;
         }
 
         .pathway-badge {
@@ -3015,8 +4056,8 @@ export default function App() {
           font-size: 11px;
           letter-spacing: 2px;
           text-transform: uppercase;
-          color: #4ECDC4;
-          border: 1px solid #4ECDC4;
+          color: #1B2A4A;
+          border: 1px solid #1B2A4A;
           padding: 6px 16px;
           margin-bottom: 30px;
         }
@@ -3024,64 +4065,103 @@ export default function App() {
         .hero-section h1 {
           font-size: clamp(28px, 5vw, 48px);
           font-weight: 400;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 16px;
           letter-spacing: -0.5px;
         }
 
         .hero-subtitle {
           font-size: 18px;
-          color: #5d6f89;
-          max-width: 500px;
-          margin: 0 auto 40px;
+          color: #9A9690;
+          max-width: 760px;
+          margin: 0 auto 28px;
         }
 
-        .hero-flow {
+        .hero-graphboard {
+          max-width: 980px;
+          margin: 0 auto 28px;
+          background: rgba(255, 255, 255, 0.82);
+          border: 1px solid #DBE2ED;
+          border-radius: 12px;
+          padding: 20px 20px 14px;
+          box-shadow: 0 12px 24px rgba(19, 35, 58, 0.08);
+        }
+
+        .hero-graph-canvas {
+          width: 100%;
+          height: 320px;
+          display: block;
+        }
+
+        .hero-graph-legend {
+          margin-top: 8px;
           display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 20px;
           flex-wrap: wrap;
+          justify-content: center;
+          gap: 10px;
         }
 
-        .flow-node {
+        .hero-legend-item {
           font-family: 'Helvetica Neue', sans-serif;
-          font-size: 13px;
-          padding: 12px 24px;
-          border-radius: 4px;
-          background: #dfe7f2;
-          border: 1px solid #c2cfde;
+          font-size: 11px;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          color: #5F687A;
+          border: 1px solid #D6DEEA;
+          border-radius: 999px;
+          padding: 5px 10px;
         }
 
-        .flow-node.gross { border-color: #4ECDC4; color: #4ECDC4; }
-        .flow-node.fees { border-color: #FF6B6B; color: #FF6B6B; }
-        .flow-node.net { border-color: #4ECDC4; color: #4ECDC4; }
+        .hero-legend-item.gross {
+          border-color: rgba(45, 107, 79, 0.35);
+          color: #2D6B4F;
+        }
 
-        .flow-arrow {
-          color: #8a99af;
-          font-size: 24px;
+        .hero-legend-item.net {
+          border-color: rgba(27, 42, 74, 0.35);
+          color: #1B2A4A;
+        }
+
+        .hero-legend-item.spread {
+          border-color: rgba(201, 168, 76, 0.45);
+          color: #A8892E;
+        }
+
+        .hero-metrics {
+          max-width: 980px;
+          margin: 0 auto 10px;
+        }
+
+        .hero-scroll-note {
+          font-size: 13px;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          color: #9A9690;
+          margin-bottom: 0;
         }
 
         /* Content Sections */
         .content-section {
           max-width: 900px;
           margin: 0 auto;
-          padding: 60px 40px;
+          padding: 70px 40px 62px;
+          border-bottom: none;
+          background: #ffffff;
         }
 
         .content-section h2 {
           font-size: 28px;
           font-weight: 400;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 24px;
-          padding-bottom: 12px;
-          border-bottom: 1px solid #dfe7f2;
+          padding-bottom: 10px;
+          border-bottom: 1px solid #E3E8F1;
         }
 
         .content-section h3 {
           font-size: 20px;
           font-weight: 400;
-          color: #13233a;
+          color: #1B2A4A;
           margin: 40px 0 16px;
         }
 
@@ -3091,25 +4171,51 @@ export default function App() {
         }
 
         .content-section strong {
-          color: #13233a;
+          color: #1B2A4A;
         }
 
         .content-section em {
-          color: #4ECDC4;
+          color: #1B2A4A;
           font-style: normal;
         }
 
         /* Interactive Blocks */
         .interactive-block {
           background: #ffffff;
-          border: 1px solid #dfe7f2;
-          border-radius: 8px;
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
           padding: 24px;
           margin: 32px 0;
+          box-shadow: 0 10px 28px rgba(15, 27, 51, 0.05);
         }
 
         .block-header {
           margin-bottom: 24px;
+        }
+
+        .block-actions {
+          display: flex;
+          justify-content: flex-end;
+          margin: -12px 0 16px;
+        }
+
+        .reset-button {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 11px;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          color: #1B2A4A;
+          border: 1px solid #CFD7E5;
+          background: #ffffff;
+          border-radius: 999px;
+          padding: 8px 14px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .reset-button:hover {
+          border-color: #1B2A4A;
+          background: #F5F7FB;
         }
 
         .block-title {
@@ -3117,13 +4223,13 @@ export default function App() {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 14px;
           font-weight: 500;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 4px;
         }
 
         .block-subtitle {
           font-size: 13px;
-          color: #6f819d;
+          color: #9A9690;
         }
 
         /* Sliders */
@@ -3141,7 +4247,7 @@ export default function App() {
         .slider-label {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
-          color: #5d6f89;
+          color: #9A9690;
           text-transform: uppercase;
           letter-spacing: 0.5px;
         }
@@ -3171,7 +4277,7 @@ export default function App() {
           height: 18px;
           border-radius: 50%;
           background: #ffffff;
-          border: 2px solid #8a99af;
+          border: 2px solid #9A9690;
           cursor: pointer;
           box-shadow: 0 2px 6px rgba(19, 35, 58, 0.2);
         }
@@ -3182,7 +4288,7 @@ export default function App() {
           border-radius: 50%;
           background: #ffffff;
           cursor: pointer;
-          border: 2px solid #8a99af;
+          border: 2px solid #9A9690;
         }
 
         .sliders-grid {
@@ -3204,7 +4310,7 @@ export default function App() {
         .toggle-label {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
-          color: #5d6f89;
+          color: #9A9690;
           text-transform: uppercase;
           letter-spacing: 0.5px;
           min-width: 140px;
@@ -3219,9 +4325,9 @@ export default function App() {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
           padding: 8px 16px;
-          border: 1px solid #c2cfde;
+          border: 1px solid #D9D5CF;
           background: transparent;
-          color: #5d6f89;
+          color: #9A9690;
           cursor: pointer;
           transition: all 0.2s;
         }
@@ -3235,12 +4341,12 @@ export default function App() {
         }
 
         .toggle-button.active {
-          color: #f4f7fb;
+          color: #F5F3EF;
         }
 
         /* Terms Section */
         .terms-section {
-          background: #dfe7f2;
+          background: #E8E6E1;
           border-radius: 6px;
           padding: 16px 20px;
           margin-bottom: 24px;
@@ -3252,10 +4358,10 @@ export default function App() {
           font-weight: 500;
           text-transform: uppercase;
           letter-spacing: 1px;
-          color: #4ECDC4;
+          color: #1B2A4A;
           margin-bottom: 16px;
           padding-bottom: 8px;
-          border-bottom: 1px solid #c2cfde;
+          border-bottom: 1px solid #D9D5CF;
         }
 
         .terms-section .toggle-row:last-child {
@@ -3269,9 +4375,9 @@ export default function App() {
           padding: 12px;
           margin-top: 20px;
           background: transparent;
-          border: 1px dashed #c2cfde;
+          border: 1px dashed #D9D5CF;
           border-radius: 6px;
-          color: #5d6f89;
+          color: #9A9690;
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 13px;
           cursor: pointer;
@@ -3279,8 +4385,8 @@ export default function App() {
         }
 
         .assumptions-toggle:hover {
-          border-color: #4ECDC4;
-          color: #4ECDC4;
+          border-color: #1B2A4A;
+          color: #1B2A4A;
         }
 
         .assumptions-table-container {
@@ -3301,10 +4407,10 @@ export default function App() {
           font-weight: 500;
           text-transform: uppercase;
           letter-spacing: 0.5px;
-          color: #6f819d;
+          color: #9A9690;
           text-align: right;
           padding: 8px 10px;
-          border-bottom: 1px solid #c2cfde;
+          border-bottom: 1px solid #D9D5CF;
           white-space: nowrap;
         }
 
@@ -3315,17 +4421,17 @@ export default function App() {
         .assumptions-table td {
           text-align: right;
           padding: 8px 10px;
-          border-bottom: 1px solid #dfe7f2;
-          color: #4f6078;
+          border-bottom: 1px solid #E8E6E1;
+          color: #4A4641;
         }
 
         .assumptions-table td:first-child {
           text-align: center;
-          color: #6f819d;
+          color: #9A9690;
         }
 
         .assumptions-table tr.post-investment {
-          background: rgba(78, 205, 196, 0.05);
+          background: rgba(27, 42, 74, 0.04);
         }
 
         .assumptions-table .basis-cell {
@@ -3336,22 +4442,22 @@ export default function App() {
           display: block;
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 9px;
-          color: #6f819d;
+          color: #9A9690;
           text-transform: uppercase;
         }
 
         .assumptions-table .basis-value {
-          color: #4ECDC4;
+          color: #1B2A4A;
         }
 
         .assumptions-table .fee-cell {
-          color: #FF6B6B;
+          color: #B5473A;
         }
 
         .table-note {
           margin-top: 12px;
           font-size: 11px;
-          color: #7d8ea6;
+          color: #9A9690;
           font-style: italic;
         }
 
@@ -3363,8 +4469,26 @@ export default function App() {
           margin-top: 24px;
         }
 
+        .net-impact-panel {
+          margin-top: 18px;
+          border: 1px solid #E8E6E1;
+          border-radius: 8px;
+          background: rgba(19, 35, 58, 0.03);
+          padding: 14px 14px 8px;
+        }
+
+        .net-impact-title {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 11px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+          color: #9A9690;
+          margin-bottom: 8px;
+        }
+
         .metric-card {
-          background: #dfe7f2;
+          background: #E8E6E1;
           padding: 16px;
           border-radius: 6px;
           text-align: center;
@@ -3373,7 +4497,7 @@ export default function App() {
         .metric-label {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 11px;
-          color: #6f819d;
+          color: #9A9690;
           text-transform: uppercase;
           letter-spacing: 0.5px;
           margin-bottom: 8px;
@@ -3387,7 +4511,7 @@ export default function App() {
 
         .metric-subtext {
           font-size: 12px;
-          color: #6f819d;
+          color: #9A9690;
           margin-top: 4px;
         }
 
@@ -3430,14 +4554,14 @@ export default function App() {
         .bar-value-label {
           font-family: 'SF Mono', 'Monaco', monospace;
           font-size: 11px;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 8px;
         }
 
         .bar-label {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 10px;
-          color: #6f819d;
+          color: #9A9690;
           margin-top: 8px;
           text-align: center;
         }
@@ -3456,7 +4580,7 @@ export default function App() {
           gap: 8px;
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 12px;
-          color: #5d6f89;
+          color: #9A9690;
         }
 
         .legend-color {
@@ -3479,15 +4603,15 @@ export default function App() {
         }
 
         .hurdle-status.cleared {
-          background: rgba(78, 205, 196, 0.1);
-          border: 1px solid rgba(78, 205, 196, 0.3);
-          color: #4ECDC4;
+          background: rgba(45, 107, 79, 0.12);
+          border: 1px solid rgba(45, 107, 79, 0.28);
+          color: #1B2A4A;
         }
 
         .hurdle-status.not-cleared {
-          background: rgba(255, 107, 107, 0.1);
-          border: 1px solid rgba(255, 107, 107, 0.3);
-          color: #FF6B6B;
+          background: rgba(181, 71, 58, 0.12);
+          border: 1px solid rgba(181, 71, 58, 0.28);
+          color: #B5473A;
         }
 
         .hurdle-indicator {
@@ -3513,7 +4637,7 @@ export default function App() {
 
         .comparison-card {
           background: #ffffff;
-          border: 1px solid #dfe7f2;
+          border: 1px solid #E8E6E1;
           border-radius: 8px;
           padding: 24px;
         }
@@ -3522,7 +4646,7 @@ export default function App() {
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 14px;
           font-weight: 500;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 12px;
         }
 
@@ -3539,7 +4663,7 @@ export default function App() {
 
         .comparison-list li {
           margin-bottom: 6px;
-          color: #5d6f89;
+          color: #9A9690;
         }
 
         .comparison-metrics {
@@ -3559,8 +4683,8 @@ export default function App() {
           text-align: center;
         }
 
-        .comparison-column.european h5 { color: #4ECDC4; }
-        .comparison-column.american h5 { color: #FF6B6B; }
+        .comparison-column.european h5 { color: #1B2A4A; }
+        .comparison-column.american h5 { color: #B5473A; }
 
         .metric-stack {
           display: flex;
@@ -3569,7 +4693,7 @@ export default function App() {
         }
 
         .difference-callout {
-          background: #dfe7f2;
+          background: #E8E6E1;
           padding: 16px;
           border-radius: 6px;
           text-align: center;
@@ -3577,8 +4701,8 @@ export default function App() {
           font-size: 14px;
         }
 
-        .difference-callout .positive { color: #4ECDC4; }
-        .difference-callout .negative { color: #FF6B6B; }
+        .difference-callout .positive { color: #1B2A4A; }
+        .difference-callout .negative { color: #B5473A; }
 
         /* Fee Structure Comparison */
         .structure-comparison {
@@ -3589,7 +4713,7 @@ export default function App() {
         }
 
         .structure-card {
-          background: #dfe7f2;
+          background: #E8E6E1;
           border: 2px solid;
           border-radius: 8px;
           padding: 16px;
@@ -3606,7 +4730,7 @@ export default function App() {
         .structure-net {
           font-family: 'SF Mono', 'Monaco', monospace;
           font-size: 24px;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 8px;
         }
 
@@ -3615,11 +4739,11 @@ export default function App() {
           flex-direction: column;
           gap: 2px;
           font-size: 11px;
-          color: #6f819d;
+          color: #9A9690;
         }
 
         .crossover-indicator {
-          background: #dfe7f2;
+          background: #E8E6E1;
           border-radius: 8px;
           padding: 20px;
           text-align: center;
@@ -3628,7 +4752,7 @@ export default function App() {
 
         .crossover-line {
           height: 2px;
-          background: linear-gradient(90deg, #4ECDC4, #FF6B6B);
+          background: linear-gradient(90deg, #1B2A4A, #B5473A);
           margin-bottom: 16px;
         }
 
@@ -3636,13 +4760,13 @@ export default function App() {
           display: block;
           font-family: 'SF Mono', 'Monaco', monospace;
           font-size: 16px;
-          color: #13233a;
+          color: #1B2A4A;
           margin-bottom: 8px;
         }
 
         .crossover-text p {
           font-size: 13px;
-          color: #5d6f89;
+          color: #9A9690;
           margin: 0;
         }
 
@@ -3658,7 +4782,7 @@ export default function App() {
           display: block;
           font-family: 'Helvetica Neue', sans-serif;
           font-size: 11px;
-          color: #6f819d;
+          color: #9A9690;
           text-transform: uppercase;
           margin-bottom: 8px;
         }
@@ -3667,15 +4791,15 @@ export default function App() {
         .callout {
           display: flex;
           gap: 16px;
-          background: #dfe7f2;
-          border-left: 3px solid #4ECDC4;
+          background: #E8E6E1;
+          border-left: 3px solid #1B2A4A;
           padding: 20px;
           margin: 32px 0;
           border-radius: 0 8px 8px 0;
         }
 
         .callout-insight {
-          border-left-color: #FFD93D;
+          border-left-color: #C9A84C;
         }
 
         .callout-icon {
@@ -3688,7 +4812,7 @@ export default function App() {
         }
 
         .callout-content strong {
-          color: #4ECDC4;
+          color: #1B2A4A;
         }
 
         /* Expense Categories */
@@ -3707,7 +4831,7 @@ export default function App() {
         .expense-bar-container {
           width: 120px;
           height: 24px;
-          background: #dfe7f2;
+          background: #E8E6E1;
           border-radius: 4px;
           position: relative;
           overflow: hidden;
@@ -3727,7 +4851,7 @@ export default function App() {
           transform: translateY(-50%);
           font-family: 'SF Mono', 'Monaco', monospace;
           font-size: 11px;
-          color: #13233a;
+          color: #1B2A4A;
           font-weight: 500;
         }
 
@@ -3740,23 +4864,23 @@ export default function App() {
         .expense-name {
           font-size: 13px;
           font-weight: 500;
-          color: #13233a;
+          color: #1B2A4A;
         }
 
         .expense-desc {
           font-size: 11px;
-          color: #6f819d;
+          color: #9A9690;
         }
 
         /* Conclusion */
         .conclusion {
-          border-top: 1px solid #dfe7f2;
+          border-top: 1px solid #E8E6E1;
           margin-top: 40px;
         }
 
         .final-thought {
-          background: linear-gradient(135deg, #ffffff 0%, #dfe7f2 100%);
-          border: 1px solid #c2cfde;
+          background: linear-gradient(135deg, #ffffff 0%, #E8E6E1 100%);
+          border: 1px solid #D9D5CF;
           border-radius: 8px;
           padding: 32px;
           margin: 40px 0;
@@ -3765,14 +4889,14 @@ export default function App() {
 
         .final-thought p {
           font-size: 18px;
-          color: #13233a;
+          color: #1B2A4A;
           margin: 0;
         }
 
         .pathway-footer {
           text-align: center;
           padding: 40px 0;
-          border-top: 1px solid #dfe7f2;
+          border-top: 1px solid #E8E6E1;
           margin-top: 40px;
         }
 
@@ -3781,13 +4905,13 @@ export default function App() {
           font-size: 14px;
           letter-spacing: 3px;
           text-transform: uppercase;
-          color: #4ECDC4;
+          color: #1B2A4A;
           margin-bottom: 8px;
         }
 
         .pathway-footer p {
           font-size: 13px;
-          color: #6f819d;
+          color: #9A9690;
           margin: 0;
         }
 
@@ -3801,26 +4925,58 @@ export default function App() {
             grid-template-columns: 1fr;
           }
 
-          .hero-flow {
-            flex-direction: column;
+          .hero-graphboard {
+            padding: 16px;
           }
 
-          .flow-arrow {
-            transform: rotate(90deg);
+          .hero-graph-canvas {
+            height: 260px;
           }
         }
       `}</style>
 
       <Header />
-      <MasterDashboard />
-      <IntroSection />
-      <ManagementFeeSection />
-      <ExpensesSection />
-      <CarrySection />
-      <WaterfallComparisonSection />
-      <FeeTradeoffSection />
-      <AccruedCarrySection />
-      <ConclusionSection />
+      <div className="app-shell">
+        <SideNav sections={SECTION_LINKS} />
+        <main className="app-main">
+          <HeroSection />
+          <IntroSection
+            globalGrossMultiple={globalGrossMultiple}
+            onGrossMultipleChange={setGlobalGrossMultiple}
+          />
+          <ManagementFeeSection />
+          <ExpensesSection />
+          <CarrySection />
+          <WaterfallComparisonSection
+            globalGrossMultiple={globalGrossMultiple}
+            onGrossMultipleChange={setGlobalGrossMultiple}
+          />
+          <UnderinvestingSection
+            globalGrossMultiple={globalGrossMultiple}
+            onGrossMultipleChange={setGlobalGrossMultiple}
+            globalDeploymentRate={globalDeploymentRate}
+            onDeploymentRateChange={setGlobalDeploymentRate}
+          />
+          <FeeTradeoffSection
+            globalGrossMultiple={globalGrossMultiple}
+            onGrossMultipleChange={setGlobalGrossMultiple}
+          />
+          <AccruedCarrySection />
+          <QuarterlyScheduleSection
+            globalGrossMultiple={globalGrossMultiple}
+            onGrossMultipleChange={setGlobalGrossMultiple}
+            globalDeploymentRate={globalDeploymentRate}
+            onDeploymentRateChange={setGlobalDeploymentRate}
+          />
+          <MasterDashboard
+            asSynthesis={true}
+            sectionId="synthesis"
+            globalGrossMultiple={globalGrossMultiple}
+            onGrossMultipleChange={setGlobalGrossMultiple}
+          />
+          <ConclusionSection />
+        </main>
+      </div>
     </div>
   );
 }
