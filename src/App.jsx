@@ -5950,13 +5950,15 @@ const PortfolioHeroSection = () => (
 );
 
 const PortfolioSingleFundSection = () => {
-  const commitmentM = 100;
-  const grossMultiple = 2.5;
-  const fundLife = 12;
-  const investmentPeriod = 5;
   const DEFAULTS = {
+    commitmentM: 100,
+    grossMultiple: 2.5,
     selectedYear: 0
   };
+  const [commitmentM, setCommitmentM] = useState(DEFAULTS.commitmentM);
+  const [grossMultiple, setGrossMultiple] = useState(DEFAULTS.grossMultiple);
+  const fundLife = 12;
+  const investmentPeriod = 5;
   const [selectedYear, setSelectedYear] = useState(DEFAULTS.selectedYear);
   const [playing, setPlaying] = useState(true);
   const yearSliderProgress = (selectedYear / fundLife) * 100;
@@ -6057,6 +6059,8 @@ const PortfolioSingleFundSection = () => {
   const activeFlows = flowByStage[activeStage.key] || [];
 
   const resetSection = () => {
+    setCommitmentM(DEFAULTS.commitmentM);
+    setGrossMultiple(DEFAULTS.grossMultiple);
     setSelectedYear(DEFAULTS.selectedYear);
     setPlaying(true);
   };
@@ -6070,6 +6074,29 @@ const PortfolioSingleFundSection = () => {
         The cash-flow direction flips over time.
       </p>
       <div className="interactive-block">
+        <div className="portfolio-lifecycle-assumption-grid">
+          <Slider
+            label="Total Committed Capital"
+            value={commitmentM}
+            min={25}
+            max={500}
+            step={5}
+            format={(v) => formatCurrency(v * 1e6, 0)}
+            onChange={setCommitmentM}
+            accent="#1B2A4A"
+          />
+          <Slider
+            label="Expected Fund Return (Gross MOIC)"
+            value={grossMultiple}
+            min={1.5}
+            max={3.5}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setGrossMultiple}
+            accent="#2D8A57"
+          />
+        </div>
+
         <div className="portfolio-lifecycle-automation">
           <div className="portfolio-lifecycle-automation-head">
             <div>
@@ -6142,7 +6169,7 @@ const PortfolioSingleFundSection = () => {
         <div className="portfolio-flow-sketch">
           <svg
             className="portfolio-flow-svg"
-            viewBox="0 0 1000 360"
+            viewBox="0 0 1000 400"
             preserveAspectRatio="xMidYMid meet"
             role="img"
             aria-label="Single fund lifecycle cash flow from LP to fund to companies and back to LP and GP"
@@ -6153,23 +6180,23 @@ const PortfolioSingleFundSection = () => {
               </marker>
             </defs>
 
-            <g className="portfolio-flow-node" transform="translate(48 42) rotate(-0.5)">
-              <rect x="0" y="0" width="180" height="84" rx="10" />
-              <text x="90" y="34">LP Capital</text>
-              <text x="90" y="58">Pension / Endowment</text>
+            <g className="portfolio-flow-node" transform="translate(40 44) rotate(-0.35)">
+              <rect x="0" y="0" width="200" height="92" rx="10" />
+              <text x="100" y="37">LP Capital</text>
+              <text x="100" y="64">Pension / Endowment</text>
             </g>
 
-            <g className="portfolio-flow-node" transform="translate(386 42) rotate(0.5)">
-              <rect x="0" y="0" width="220" height="84" rx="10" />
-              <text x="110" y="34">Fund Vehicle</text>
-              <text x="110" y="58">Calls + distributions</text>
+            <g className="portfolio-flow-node" transform="translate(356 44) rotate(0.3)">
+              <rect x="0" y="0" width="260" height="92" rx="10" />
+              <text x="130" y="37">Fund Vehicle</text>
+              <text x="130" y="64">Calls + distributions</text>
             </g>
 
-            <g className="portfolio-flow-node" transform="translate(728 42) rotate(-0.4)">
-              <rect x="0" y="0" width="220" height="108" rx="10" />
-              <text x="110" y="30">Portfolio Companies</text>
-              <text x="110" y="55">Operating growth + exits</text>
-              <g className="portfolio-company-doodles" transform="translate(20 66)">
+            <g className="portfolio-flow-node" transform="translate(690 44) rotate(-0.3)">
+              <rect x="0" y="0" width="260" height="118" rx="10" />
+              <text x="130" y="34">Portfolio Companies</text>
+              <text x="130" y="61">Operating growth + exits</text>
+              <g className="portfolio-company-doodles" transform="translate(34 76)">
                 <rect x="0" y="10" width="34" height="24" rx="2" />
                 <line x1="0" y1="34" x2="34" y2="34" />
                 <line x1="8" y1="18" x2="8" y2="26" />
@@ -6194,71 +6221,76 @@ const PortfolioSingleFundSection = () => {
               </g>
             </g>
 
-            <g className="portfolio-flow-node" transform="translate(386 228) rotate(-0.4)">
-              <rect x="0" y="0" width="220" height="84" rx="10" />
-              <text x="110" y="34">Exit Proceeds</text>
-              <text x="110" y="58">Cash back in fund</text>
+            <g className="portfolio-flow-node" transform="translate(356 252)">
+              <rect x="0" y="0" width="260" height="92" rx="10" />
+              <text x="130" y="37">Exit Proceeds</text>
+              <text x="130" y="64">Cash back in fund</text>
             </g>
 
-            <g className="portfolio-flow-node terminal lp" transform="translate(80 228) rotate(0.4)">
-              <rect x="0" y="0" width="220" height="84" rx="10" />
-              <text x="110" y="34">LP Net Distributions</text>
-              <text x="110" y="58">Capital + gains</text>
+            <g className="portfolio-flow-node terminal lp" transform="translate(40 252)">
+              <rect x="0" y="0" width="260" height="92" rx="10" />
+              <text x="130" y="37">LP Net Distributions</text>
+              <text x="130" y="64">Capital + gains</text>
             </g>
 
-            <g className="portfolio-flow-node terminal gp" transform="translate(700 228) rotate(-0.2)">
-              <rect x="0" y="0" width="220" height="84" rx="10" />
-              <text x="110" y="34">GP Profit Share</text>
-              <text x="110" y="58">Carry on profits</text>
+            <g className="portfolio-flow-node terminal gp" transform="translate(690 252)">
+              <rect x="0" y="0" width="260" height="92" rx="10" />
+              <text x="130" y="37">GP Profit Share</text>
+              <text x="130" y="64">Carry on profits</text>
             </g>
 
             <line
-              x1="228"
-              y1="84"
-              x2="386"
-              y2="84"
+              x1="240"
+              y1="90"
+              x2="356"
+              y2="90"
               className={`portfolio-flow-arrow ${activeFlows.includes('lp-fund') ? 'active' : ''}`}
               markerEnd="url(#flowArrow)"
             />
-            <text x="308" y="56" className={`portfolio-flow-label ${activeFlows.includes('lp-fund') ? 'active' : ''}`}>Capital calls</text>
+            <text x="298" y="56" className={`portfolio-flow-label ${activeFlows.includes('lp-fund') ? 'active' : ''}`}>Capital calls</text>
+            <text x="298" y="85" className={`portfolio-flow-money ${activeFlows.includes('lp-fund') ? 'active' : ''}`}>$</text>
 
             <line
-              x1="606"
-              y1="84"
-              x2="728"
-              y2="90"
+              x1="616"
+              y1="90"
+              x2="690"
+              y2="94"
               className={`portfolio-flow-arrow ${activeFlows.includes('fund-companies') ? 'active' : ''}`}
               markerEnd="url(#flowArrow)"
             />
-            <text x="667" y="56" className={`portfolio-flow-label ${activeFlows.includes('fund-companies') ? 'active' : ''}`}>Deploy capital</text>
+            <text x="652" y="56" className={`portfolio-flow-label ${activeFlows.includes('fund-companies') ? 'active' : ''}`}>Deploy capital</text>
+            <text x="652" y="88" className={`portfolio-flow-money ${activeFlows.includes('fund-companies') ? 'active' : ''}`}>$</text>
 
             <path
-              d="M 840 150 C 804 186, 710 216, 496 228"
+              d="M 820 162 C 770 214, 664 236, 486 252"
               className={`portfolio-flow-arrow ${activeFlows.includes('companies-fund') ? 'active' : ''}`}
               markerEnd="url(#flowArrow)"
               fill="none"
             />
-            <text x="734" y="176" className={`portfolio-flow-label ${activeFlows.includes('companies-fund') ? 'active' : ''}`}>Exits / realizations</text>
+            <text x="742" y="208" className={`portfolio-flow-label ${activeFlows.includes('companies-fund') ? 'active' : ''}`}>Exit returns</text>
+            <text x="672" y="216" className={`portfolio-flow-money ${activeFlows.includes('companies-fund') ? 'active' : ''}`}>$</text>
 
             <line
-              x1="386"
-              y1="270"
-              x2="300"
-              y2="270"
+              x1="356"
+              y1="336"
+              x2="286"
+              y2="336"
               className={`portfolio-flow-arrow ${activeFlows.includes('fund-lp') ? 'active' : ''}`}
               markerEnd="url(#flowArrow)"
             />
-            <text x="340" y="242" className={`portfolio-flow-label ${activeFlows.includes('fund-lp') ? 'active' : ''}`}>Net to LPs</text>
+            <text x="321" y="366" className={`portfolio-flow-label ${activeFlows.includes('fund-lp') ? 'active' : ''}`}>Net to LPs</text>
+            <text x="321" y="330" className={`portfolio-flow-money ${activeFlows.includes('fund-lp') ? 'active' : ''}`}>$</text>
 
             <line
-              x1="606"
-              y1="270"
-              x2="700"
-              y2="270"
+              x1="616"
+              y1="336"
+              x2="704"
+              y2="336"
               className={`portfolio-flow-arrow ${activeFlows.includes('fund-gp') ? 'active' : ''}`}
               markerEnd="url(#flowArrow)"
             />
-            <text x="652" y="242" className={`portfolio-flow-label ${activeFlows.includes('fund-gp') ? 'active' : ''}`}>Carry to GP</text>
+            <text x="660" y="366" className={`portfolio-flow-label ${activeFlows.includes('fund-gp') ? 'active' : ''}`}>Carry to GP</text>
+            <text x="660" y="330" className={`portfolio-flow-money ${activeFlows.includes('fund-gp') ? 'active' : ''}`}>$</text>
           </svg>
           <div className="portfolio-flow-caption">
             {laneDirection === 'to-fund'
@@ -7956,6 +7988,13 @@ export default function App() {
           color: #4F5B72;
         }
 
+        .portfolio-lifecycle-assumption-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 10px;
+          margin: 0 0 10px;
+        }
+
         .portfolio-lifecycle-automation {
           border: 1px solid #DCE3EE;
           border-radius: 12px;
@@ -8085,14 +8124,14 @@ export default function App() {
         }
 
         .portfolio-lifecycle-stage-title {
-          font-size: 13px;
+          font-size: 14px;
           font-weight: 600;
           color: #1B2A4A;
           margin-bottom: 2px;
         }
 
         .portfolio-lifecycle-stage-range {
-          font-size: 11px;
+          font-size: 12px;
           letter-spacing: 0.7px;
           text-transform: uppercase;
           color: #6B7488;
@@ -8101,7 +8140,7 @@ export default function App() {
 
         .portfolio-lifecycle-stage-card p {
           margin: 0;
-          font-size: 13px;
+          font-size: 14px;
           line-height: 1.5;
           color: #4F5B72;
         }
@@ -8124,7 +8163,7 @@ export default function App() {
 
         .portfolio-flow-svg {
           width: 100%;
-          height: 400px;
+          height: 420px;
         }
 
         .portfolio-flow-node rect {
@@ -8168,26 +8207,26 @@ export default function App() {
         }
 
         .portfolio-flow-arrow {
-          stroke: #B7C2D4;
+          stroke: #7DB294;
           stroke-width: 2.2;
           stroke-dasharray: 7 9;
-          color: #B7C2D4;
-          opacity: 0.48;
+          color: #7DB294;
+          opacity: 0.58;
         }
 
         .portfolio-flow-arrow.active {
-          stroke: #124A97;
-          color: #124A97;
-          stroke-width: 4.6;
+          stroke: #2D8A57;
+          color: #2D8A57;
+          stroke-width: 3.8;
           stroke-dasharray: 6 6;
           opacity: 1;
           animation: flowDash 0.75s linear infinite;
-          filter: drop-shadow(0 0 2px rgba(18, 74, 151, 0.35));
+          filter: drop-shadow(0 0 2px rgba(45, 138, 87, 0.35));
         }
 
         .portfolio-flow-label {
           fill: #3D4D69;
-          font-size: 14px;
+          font-size: 15px;
           font-weight: 600;
           font-family: "Helvetica Neue", Arial, sans-serif;
           text-anchor: middle;
@@ -8199,9 +8238,25 @@ export default function App() {
         }
 
         .portfolio-flow-label.active {
-          fill: #124A97;
+          fill: #2D8A57;
           font-weight: 700;
           stroke: rgba(255, 255, 255, 0.98);
+        }
+
+        .portfolio-flow-money {
+          fill: #2F6E4B;
+          font-size: 18px;
+          font-weight: 700;
+          font-family: "Helvetica Neue", Arial, sans-serif;
+          text-anchor: middle;
+          paint-order: stroke fill;
+          stroke: rgba(255, 255, 255, 0.96);
+          stroke-width: 5px;
+          pointer-events: none;
+        }
+
+        .portfolio-flow-money.active {
+          fill: #2D8A57;
         }
 
         .portfolio-flow-caption {
@@ -9877,12 +9932,16 @@ export default function App() {
             grid-template-columns: 1fr;
           }
 
+          .portfolio-lifecycle-assumption-grid {
+            grid-template-columns: 1fr;
+          }
+
           .portfolio-lifecycle-stage-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
 
           .portfolio-flow-svg {
-            height: 360px;
+            height: 390px;
           }
 
           .sliders-grid.three-up {
