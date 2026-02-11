@@ -483,7 +483,8 @@ const ComparisonChart = ({
   yFormatter = (v) => formatCurrency(v, 0),
   shiftArrows = [],
   animateShiftArrows = false,
-  marker = null
+  marker = null,
+  showLegend = true
 }) => {
   const canvasRef = useRef(null);
 
@@ -674,32 +675,34 @@ const ComparisonChart = ({
         });
       }
 
-      // Legend with dynamic spacing so long labels do not overlap.
-      let legendX = padding.left;
-      let legendY = 12;
-      const legendRowHeight = 14;
-      const legendGap = 16;
-      const legendItems = [
-        { color: colorA, text: labelA },
-        { color: colorB, text: labelB }
-      ].filter((item) => Boolean(item.text));
+      if (showLegend) {
+        // Legend with dynamic spacing so long labels do not overlap.
+        let legendX = padding.left;
+        let legendY = 12;
+        const legendRowHeight = 14;
+        const legendGap = 16;
+        const legendItems = [
+          { color: colorA, text: labelA },
+          { color: colorB, text: labelB }
+        ].filter((item) => Boolean(item.text));
 
-      ctx.font = '11px system-ui';
-      ctx.textAlign = 'left';
+        ctx.font = '11px system-ui';
+        ctx.textAlign = 'left';
 
-      legendItems.forEach((item) => {
-        const textWidth = ctx.measureText(item.text).width;
-        const itemWidth = 28 + textWidth;
-        if (legendX + itemWidth > width - padding.right && legendX > padding.left) {
-          legendX = padding.left;
-          legendY += legendRowHeight;
-        }
-        ctx.fillStyle = item.color;
-        ctx.fillRect(legendX, legendY, 20, 3);
-        ctx.fillStyle = '#4A4641';
-        ctx.fillText(item.text, legendX + 28, legendY + 4);
-        legendX += itemWidth + legendGap;
-      });
+        legendItems.forEach((item) => {
+          const textWidth = ctx.measureText(item.text).width;
+          const itemWidth = 28 + textWidth;
+          if (legendX + itemWidth > width - padding.right && legendX > padding.left) {
+            legendX = padding.left;
+            legendY += legendRowHeight;
+          }
+          ctx.fillStyle = item.color;
+          ctx.fillRect(legendX, legendY, 20, 3);
+          ctx.fillStyle = '#4A4641';
+          ctx.fillText(item.text, legendX + 28, legendY + 4);
+          legendX += itemWidth + legendGap;
+        });
+      }
 
       // X-axis labels
       for (let i = 0; i < length; i++) {
@@ -741,7 +744,8 @@ const ComparisonChart = ({
     yFormatter,
     shiftArrows,
     animateShiftArrows,
-    marker
+    marker,
+    showLegend
   ]);
 
   return <canvas ref={canvasRef} className="comparison-canvas" style={{ width: '100%', height }} />;
@@ -4045,6 +4049,16 @@ const UnderinvestingSection = ({
 
         <div className="tradeoff-curve underinvesting-curve">
           <div className="tradeoff-curve-title">Deployment Rate vs Gross Outcome</div>
+          <div className="underinvesting-legend">
+            <div className="underinvesting-legend-item">
+              <span className="underinvesting-legend-line" style={{ background: '#1B2A4A' }}></span>
+              <span>Commitment TVPI</span>
+            </div>
+            <div className="underinvesting-legend-item">
+              <span className="underinvesting-legend-line" style={{ background: '#2D6B4F' }}></span>
+              <span>Invested MOIC</span>
+            </div>
+          </div>
           <ComparisonChart
             seriesA={deploymentCurve.commitmentGross}
             seriesB={deploymentCurve.investedGross}
@@ -4056,6 +4070,7 @@ const UnderinvestingSection = ({
             colorA="#1B2A4A"
             colorB="#2D6B4F"
             height={220}
+            showLegend={false}
             marker={{
               index: currentDeploymentIndex,
               label: `Current ${(deploymentRate * 100).toFixed(0)}%`,
@@ -6526,6 +6541,29 @@ export default function App() {
           gap: 2px;
           font-size: 11px;
           color: #9A9690;
+        }
+
+        .underinvesting-legend {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px 22px;
+          margin: 2px 0 6px;
+          align-items: center;
+        }
+
+        .underinvesting-legend-item {
+          display: inline-flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          color: #4A4641;
+        }
+
+        .underinvesting-legend-line {
+          width: 30px;
+          height: 3px;
+          border-radius: 999px;
+          display: inline-block;
         }
 
         .crossover-indicator {
