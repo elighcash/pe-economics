@@ -674,18 +674,32 @@ const ComparisonChart = ({
         });
       }
 
-      // Legend
-      ctx.fillStyle = colorA;
-      ctx.fillRect(padding.left, 10, 20, 3);
-      ctx.fillStyle = '#4A4641';
+      // Legend with dynamic spacing so long labels do not overlap.
+      let legendX = padding.left;
+      let legendY = 12;
+      const legendRowHeight = 14;
+      const legendGap = 16;
+      const legendItems = [
+        { color: colorA, text: labelA },
+        { color: colorB, text: labelB }
+      ].filter((item) => Boolean(item.text));
+
       ctx.font = '11px system-ui';
       ctx.textAlign = 'left';
-      ctx.fillText(labelA, padding.left + 28, 14);
 
-      ctx.fillStyle = colorB;
-      ctx.fillRect(padding.left + 120, 10, 20, 3);
-      ctx.fillStyle = '#4A4641';
-      ctx.fillText(labelB, padding.left + 148, 14);
+      legendItems.forEach((item) => {
+        const textWidth = ctx.measureText(item.text).width;
+        const itemWidth = 28 + textWidth;
+        if (legendX + itemWidth > width - padding.right && legendX > padding.left) {
+          legendX = padding.left;
+          legendY += legendRowHeight;
+        }
+        ctx.fillStyle = item.color;
+        ctx.fillRect(legendX, legendY, 20, 3);
+        ctx.fillStyle = '#4A4641';
+        ctx.fillText(item.text, legendX + 28, legendY + 4);
+        legendX += itemWidth + legendGap;
+      });
 
       // X-axis labels
       for (let i = 0; i < length; i++) {
@@ -1301,6 +1315,7 @@ const generateQuarterlyData = (fundLife, investmentPeriod, grossMultiple) => {
   const data = [];
   let prevDrawdown = 0;
   let prevDPI = 0;
+  let prevTotalValue = 0;
 
   for (let q = 1; q <= totalQuarters; q++) {
     // Capital deployment progress (0-1 through investment period)
@@ -1319,7 +1334,12 @@ const generateQuarterlyData = (fundLife, investmentPeriod, grossMultiple) => {
     const distProgress = q >= distributionStartQuarter
       ? (q - distributionStartQuarter + 1) / distributionQuarters
       : 0;
-    const rvpi = GROSS_BASE_CURVE.getNAV(yearProgress, distProgress, grossMultiple) * drawdown;
+    let rvpi = GROSS_BASE_CURVE.getNAV(yearProgress, distProgress, grossMultiple) * drawdown;
+    // Keep total value (DPI + RVPI) economically coherent for the base curve:
+    // it should generally decelerate into the terminal multiple, not fall in late years.
+    const candidateTotalValue = dpi + rvpi;
+    const totalValue = Math.min(grossMultiple, Math.max(prevTotalValue, candidateTotalValue));
+    rvpi = Math.max(0, totalValue - dpi);
 
     // Incremental values
     const capitalCall = drawdown - prevDrawdown;
@@ -1338,6 +1358,7 @@ const generateQuarterlyData = (fundLife, investmentPeriod, grossMultiple) => {
 
     prevDrawdown = drawdown;
     prevDPI = dpi;
+    prevTotalValue = totalValue;
   }
 
   return data;
@@ -2235,8 +2256,8 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
     const expenseDrag = model.totals.totalExpenses / fundSizeM;
     const carryDrag = model.totals.carry / fundSizeM;
     const totalDrag = mgmtFeeDrag + expenseDrag + carryDrag;
-    const grossProfitPerUnit = Math.max(0.0001, grossMOIC - 1);
-    const dragPctOfGrossProfit = (totalDrag / grossProfitPerUnit) * 100;
+    const grossProfitPerUnit = grossMOIC - 1;
+    const dragPctOfGrossProfit = grossProfitPerUnit > 0 ? (totalDrag / grossProfitPerUnit) * 100 : null;
 
     let running = grossMOIC;
     const bridgeSteps = [
@@ -2294,6 +2315,9 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
       carryDrag,
       totalDrag,
       dragPctOfGrossProfit,
+      dragPctLabel: dragPctOfGrossProfit == null
+        ? 'N/A at 1.00x gross'
+        : `${dragPctOfGrossProfit.toFixed(0)}% of gross profits`,
       bridgeSteps
     };
   }, [grossReturn]);
@@ -2309,8 +2333,8 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
         <sup className="source-sup">
           <a href="#source-1" aria-label="Jump to source 1">[1]</a>
         </sup>.
-        Top-quartile funds have delivered returns that justify the illiquidity, complexity,
-        and yes—the fees. But between the <em>gross</em> returns a fund generates and the
+        {' '}Top-quartile funds have delivered returns that justify the illiquidity, complexity,
+        and yes—the fees. But between the <em>gross</em> returns a fund generates and the{' '}
         <em>net</em> returns an investor actually receives lies a series of economic arrangements
         that every LP should understand deeply.
       </p>
@@ -2353,7 +2377,7 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
           <MetricCard
             label="Total Net Drag"
             value={`-${grossToNetBridge.totalDrag.toFixed(2)}x`}
-            subtext={`${grossToNetBridge.dragPctOfGrossProfit.toFixed(0)}% of gross profits`}
+            subtext={grossToNetBridge.dragPctLabel}
             accent="#1B2A4A"
           />
           <MetricCard
@@ -2389,12 +2413,6 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
             value={`-${grossToNetBridge.carryDrag.toFixed(2)}x`}
             subtext="GP share of profits"
             accent="#C9A84C"
-          />
-          <MetricCard
-            label="Total Gross-to-Net Drag"
-            value={`-${grossToNetBridge.totalDrag.toFixed(2)}x`}
-            subtext={`${grossToNetBridge.dragPctOfGrossProfit.toFixed(0)}% of gross profits`}
-            accent="#1B2A4A"
           />
         </div>
 
@@ -3964,6 +3982,22 @@ const UnderinvestingSection = ({
   const fullSpread = fullDeployModel.totals.grossMultiple - fullDeployModel.totals.netMultiple;
   const extraSpread = spread - fullSpread;
   const netIrrDragBps = Math.max(0, (fullDeployModel.totals.netIRR - underinvestModel.totals.netIRR) * 10000);
+  const deploymentCurve = useMemo(() => {
+    const labels = [];
+    const commitmentGross = [];
+    const investedGross = [];
+    for (let d = 0.6; d <= 1.0001; d += 0.02) {
+      const deployment = Number(d.toFixed(2));
+      labels.push(`${(deployment * 100).toFixed(0)}%`);
+      commitmentGross.push(deployment * grossMultiple);
+      investedGross.push(grossMultiple);
+    }
+    return { labels, commitmentGross, investedGross };
+  }, [grossMultiple]);
+  const currentDeploymentIndex = useMemo(() => {
+    const rawIndex = Math.round((deploymentRate - 0.6) / 0.02);
+    return Math.max(0, Math.min(deploymentCurve.labels.length - 1, rawIndex));
+  }, [deploymentRate, deploymentCurve.labels.length]);
 
   return (
     <section id="underinvesting-impact" className="content-section">
@@ -4004,6 +4038,31 @@ const UnderinvestingSection = ({
             format={(v) => `${(v * 100).toFixed(0)}%`}
             accent="#C9A84C"
           />
+        </div>
+
+        <div className="tradeoff-curve underinvesting-curve">
+          <div className="tradeoff-curve-title">Deployment Rate vs Gross Outcome</div>
+          <ComparisonChart
+            seriesA={deploymentCurve.commitmentGross}
+            seriesB={deploymentCurve.investedGross}
+            labelA="Commitment TVPI"
+            labelB="Invested MOIC"
+            xLabels={deploymentCurve.labels}
+            xTickStep={5}
+            yFormatter={(v) => `${v.toFixed(2)}x`}
+            colorA="#1B2A4A"
+            colorB="#2D6B4F"
+            height={220}
+            marker={{
+              index: currentDeploymentIndex,
+              label: `Current ${(deploymentRate * 100).toFixed(0)}%`,
+              color: '#C9A84C'
+            }}
+          />
+          <p className="bridge-note">
+            Green stays at invested-basis gross MOIC; navy shows the translated commitment-basis
+            gross TVPI as deployment changes.
+          </p>
         </div>
 
         <div className="metrics-row">
@@ -4697,7 +4756,8 @@ const ConclusionSection = () => (
       items={[
         'Accrued carry through interim valuation periods, including how down years can compress GP carry accrual before fund termination.',
         'Recycling mechanics and how recycled capital can change fee load and measured net outcomes.',
-        'Term-level interactions like variable carry tiers, offset formulas, and expense sharing that can shift gross-to-net economics over time.'
+        'Term-level interactions like variable carry tiers, offset formulas, and expense sharing that can shift gross-to-net economics over time.',
+        'Strategies to reduce management fees and carried interest, such as secondaries and direct equity investments.'
       ]}
     />
 
