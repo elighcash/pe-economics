@@ -112,8 +112,8 @@ const SECTION_LINKS = [
   { id: 'hero-baseline', label: 'Gross Baseline' },
   { id: 'why-matters', label: 'Why This Matters' },
   { id: 'management-fees', label: 'Management Fees' },
-  { id: 'fee-nuances', label: 'Fee Nuances' },
   { id: 'fund-expenses', label: 'Fund Expenses' },
+  { id: 'lines-of-credit', label: 'Lines of Credit' },
   { id: 'carried-interest', label: 'Carry Mechanics' },
   { id: 'waterfall-structures', label: 'Waterfalls' },
   { id: 'underinvesting-impact', label: 'Underinvesting' },
@@ -3683,225 +3683,227 @@ const ExpensesSection = ({
         P&L to the fund.
       </p>
 
-      <h3>Subscription Lines Of Credit</h3>
+      <section id="lines-of-credit" className="content-subsection">
+        <h3>Subscription Lines Of Credit</h3>
 
-      <p>
-        At the fund level, a subscription line is a short-term credit facility secured by LP
-        commitments. GPs often use it to bridge capital calls, close transactions quickly, and
-        make call activity more operationally efficient. Typical facility sizes are often in the
-        <strong> 10% to 25%</strong> range of fund commitments, with many draws repaid in a few months.
-        Practically, it works like this: when a GP closes a new deal, they can borrow on the line
-        first instead of calling LP capital immediately, then call capital later to repay the line
-        (plus interest). That mostly shifts the timing of your capital call.
-      </p>
+        <p>
+          At the fund level, a subscription line is a short-term credit facility secured by LP
+          commitments. GPs often use it to bridge capital calls, close transactions quickly, and
+          make call activity more operationally efficient. Typical facility sizes are often in the
+          <strong> 10% to 25%</strong> range of fund commitments, with many draws repaid in a few months.
+          Practically, it works like this: when a GP closes a new deal, they can borrow on the line
+          first instead of calling LP capital immediately, then call capital later to repay the line
+          (plus interest). That mostly shifts the timing of your capital call.
+        </p>
 
-      <div className="interactive-block line-credit-block">
-        <div className="block-header">
-          <span className="block-title">Lines Of Credit: IRR Lift vs TVPI Drag</span>
-          <span className="block-subtitle">Delay calls, add interest expense, and compare both outcomes clearly</span>
-        </div>
-        <div className="block-actions">
-          <ResetButton onClick={resetExpenses} />
-        </div>
-
-        <div className="sliders-grid">
-          <Slider
-            value={lineGrossMOIC}
-            onChange={setLineGrossMOIC}
-            min={1.5}
-            max={3.5}
-            step={0.05}
-            label="Gross MOIC Scenario"
-            format={(v) => `${v.toFixed(2)}x`}
-            accent="#2D6B4F"
-          />
-
-          <Slider
-            value={lineUtilization}
-            onChange={setLineUtilization}
-            min={0}
-            max={0.30}
-            step={0.01}
-            label="Line Size (% Of Fund)"
-            format={(v) => formatPercent(v)}
-            accent="#4A7BA7"
-          />
-
-          <Slider
-            value={drawDelayQuarters}
-            onChange={setDrawDelayQuarters}
-            min={0}
-            max={4}
-            step={1}
-            label="Average Delay To LP Call"
-            format={(v) => `${v} qtrs`}
-            accent="#1B2A4A"
-          />
-
-          <Slider
-            value={lineRate}
-            onChange={setLineRate}
-            min={0.04}
-            max={0.12}
-            step={0.0025}
-            label="All-In Interest Cost"
-            format={(v) => formatPercent(v)}
-            accent="#B5473A"
-          />
-        </div>
-
-        <div className="loc-call-timing">
-          <div className="loc-call-timing-title">Capital Call Timing (Quarterly)</div>
-          <LocTimingColumnChart
-            data={lineOfCreditAnalysis.callTimingData.map((d) => ({
-              label: d.label,
-              noLocCall: d.baseCapitalCall,
-              withLocPrincipalCall: d.withLocPrincipalCall,
-              withLocInterestCall: d.withLocInterestCall
-            }))}
-            height={230}
-            xTickStep={2}
-            shiftArrows={locShiftArrows}
-            animateShiftArrows={true}
-          />
-          <p className="loc-call-timing-note">
-            This chart is intentionally limited to the deployment and near-paydown window to keep
-            timing effects readable.
-          </p>
-        </div>
-
-        <div className="loc-outcome-charts">
-          <div className="loc-outcome-chart">
-            <div className="loc-outcome-title">IRR Comparison</div>
-            <BarChart
-              height={180}
-              data={[
-                {
-                  label: 'No LOC',
-                  value: lineOfCreditAnalysis.netIRRNoLine * 10000,
-                  valueLabel: formatPercent(lineOfCreditAnalysis.netIRRNoLine),
-                  color: '#1B2A4A'
-                },
-                {
-                  label: 'With LOC',
-                  value: lineOfCreditAnalysis.netIRRWithLine * 10000,
-                  valueLabel: formatPercent(lineOfCreditAnalysis.netIRRWithLine),
-                  color: '#2D6B4F'
-                }
-              ]}
-              showLabels={true}
-              yDomain={[
-                Math.max(
-                  0,
-                  Math.min(lineOfCreditAnalysis.netIRRNoLine, lineOfCreditAnalysis.netIRRWithLine) * 10000 - 80
-                ),
-                Math.max(lineOfCreditAnalysis.netIRRNoLine, lineOfCreditAnalysis.netIRRWithLine) * 10000 + 80
-              ]}
-            />
-            <div className="loc-outcome-delta">
-              Change: {lineOfCreditAnalysis.irrLiftBps >= 0 ? '+' : ''}{lineOfCreditAnalysis.irrLiftBps.toFixed(0)} bps
-            </div>
-            <div className="loc-zoom-note">Zoomed axis for comparability</div>
+        <div className="interactive-block line-credit-block">
+          <div className="block-header">
+            <span className="block-title">Lines Of Credit: IRR Lift vs TVPI Drag</span>
+            <span className="block-subtitle">Delay calls, add interest expense, and compare both outcomes clearly</span>
+          </div>
+          <div className="block-actions">
+            <ResetButton onClick={resetExpenses} />
           </div>
 
-          <div className="loc-outcome-chart">
-            <div className="loc-outcome-title">TVPI Comparison</div>
-            <BarChart
-              height={180}
-              data={[
-                {
-                  label: 'No LOC',
-                  value: lineOfCreditAnalysis.netTVPINoLine,
-                  valueLabel: `${lineOfCreditAnalysis.netTVPINoLine.toFixed(2)}x`,
-                  color: '#1B2A4A'
-                },
-                {
-                  label: 'With LOC',
-                  value: lineOfCreditAnalysis.netTVPIWithLine,
-                  valueLabel: `${lineOfCreditAnalysis.netTVPIWithLine.toFixed(2)}x`,
-                  color: '#B5473A'
-                }
-              ]}
-              showLabels={true}
-              yDomain={[
-                Math.max(
-                  0,
-                  Math.min(lineOfCreditAnalysis.netTVPINoLine, lineOfCreditAnalysis.netTVPIWithLine) - 0.08
-                ),
-                Math.max(lineOfCreditAnalysis.netTVPINoLine, lineOfCreditAnalysis.netTVPIWithLine) + 0.08
-              ]}
-            />
-            <div className="loc-outcome-delta negative">
-              Change: {lineOfCreditAnalysis.tvpiDrag >= 0 ? '+' : ''}{lineOfCreditAnalysis.tvpiDrag.toFixed(3)}x
-            </div>
-            <div className="loc-zoom-note">Zoomed axis for comparability</div>
-          </div>
-        </div>
-
-        <div className="net-impact-panel">
-          <div className="net-impact-title">Economic Check</div>
-          <div className="metrics-row">
-            <MetricCard
-              label="Baseline Net IRR (No LOC)"
-              value={formatPercent(lineOfCreditAnalysis.netIRRNoLine)}
-              subtext={`Shared model at ${lineGrossMOIC.toFixed(2)}x gross MOIC`}
+          <div className="sliders-grid">
+            <Slider
+              value={lineGrossMOIC}
+              onChange={setLineGrossMOIC}
+              min={1.5}
+              max={3.5}
+              step={0.05}
+              label="Gross MOIC Scenario"
+              format={(v) => `${v.toFixed(2)}x`}
               accent="#2D6B4F"
             />
-            <MetricCard
-              label="Modeled Net IRR Lift"
-              value={`${lineOfCreditAnalysis.irrLiftBps >= 0 ? '+' : ''}${lineOfCreditAnalysis.irrLiftBps.toFixed(0)} bps`}
-              subtext={`From delaying calls by ~${drawDelayQuarters} quarters`}
-              accent={lineOfCreditAnalysis.irrLiftBps >= 0 ? '#2D6B4F' : '#B5473A'}
-            />
-            <MetricCard
-              label="Total Interest Expense"
-              value={formatCurrency(lineOfCreditAnalysis.interestExpense, 0)}
-              subtext="Fund-level cost that reduces net TVPI"
-              accent="#B5473A"
-            />
-            <MetricCard
-              label="Assumed LOC Capacity"
-              value={formatPercent(lineUtilization)}
-              subtext={`${formatCurrency(lineOfCreditAnalysis.lineCapacity, 0)} max principal, drawn up to limit`}
+
+            <Slider
+              value={lineUtilization}
+              onChange={setLineUtilization}
+              min={0}
+              max={0.30}
+              step={0.01}
+              label="Line Size (% Of Fund)"
+              format={(v) => formatPercent(v)}
               accent="#4A7BA7"
             />
-          </div>
-        </div>
-        <p className="loc-assumption-note">
-          Assumption: the model draws the line up to the selected capacity whenever quarterly
-          deal funding requires it, then amortizes repayment over the selected delay window.
-        </p>
 
-        <div className="line-credit-tradeoffs">
-          <div className="line-credit-tradeoff positive">
-            <div className="line-credit-tradeoff-title">Why LPs and GPs still use them</div>
-            <p>
-              Fewer small capital calls, administrative flexibility, and more time for LP cash to
-              stay productive elsewhere. For GPs, facilities can improve deal execution speed and
-              create room to close larger deals while syndicating co-investment.
+            <Slider
+              value={drawDelayQuarters}
+              onChange={setDrawDelayQuarters}
+              min={0}
+              max={4}
+              step={1}
+              label="Average Delay To LP Call"
+              format={(v) => `${v} qtrs`}
+              accent="#1B2A4A"
+            />
+
+            <Slider
+              value={lineRate}
+              onChange={setLineRate}
+              min={0.04}
+              max={0.12}
+              step={0.0025}
+              label="All-In Interest Cost"
+              format={(v) => formatPercent(v)}
+              accent="#B5473A"
+            />
+          </div>
+
+          <div className="loc-call-timing">
+            <div className="loc-call-timing-title">Capital Call Timing (Quarterly)</div>
+            <LocTimingColumnChart
+              data={lineOfCreditAnalysis.callTimingData.map((d) => ({
+                label: d.label,
+                noLocCall: d.baseCapitalCall,
+                withLocPrincipalCall: d.withLocPrincipalCall,
+                withLocInterestCall: d.withLocInterestCall
+              }))}
+              height={230}
+              xTickStep={2}
+              shiftArrows={locShiftArrows}
+              animateShiftArrows={true}
+            />
+            <p className="loc-call-timing-note">
+              This chart is intentionally limited to the deployment and near-paydown window to keep
+              timing effects readable.
             </p>
           </div>
-          <div className="line-credit-tradeoff negative">
-            <div className="line-credit-tradeoff-title">The counterargument is valid</div>
-            <p>
-              Some of the IRR benefit is timing optics. Interest expense is real and lowers TVPI.
-              If line usage is heavy or borrowing costs are high, the drag can overwhelm operational
-              benefits for LP outcomes.
-            </p>
+
+          <div className="loc-outcome-charts">
+            <div className="loc-outcome-chart">
+              <div className="loc-outcome-title">IRR Comparison</div>
+              <BarChart
+                height={180}
+                data={[
+                  {
+                    label: 'No LOC',
+                    value: lineOfCreditAnalysis.netIRRNoLine * 10000,
+                    valueLabel: formatPercent(lineOfCreditAnalysis.netIRRNoLine),
+                    color: '#1B2A4A'
+                  },
+                  {
+                    label: 'With LOC',
+                    value: lineOfCreditAnalysis.netIRRWithLine * 10000,
+                    valueLabel: formatPercent(lineOfCreditAnalysis.netIRRWithLine),
+                    color: '#2D6B4F'
+                  }
+                ]}
+                showLabels={true}
+                yDomain={[
+                  Math.max(
+                    0,
+                    Math.min(lineOfCreditAnalysis.netIRRNoLine, lineOfCreditAnalysis.netIRRWithLine) * 10000 - 80
+                  ),
+                  Math.max(lineOfCreditAnalysis.netIRRNoLine, lineOfCreditAnalysis.netIRRWithLine) * 10000 + 80
+                ]}
+              />
+              <div className="loc-outcome-delta">
+                Change: {lineOfCreditAnalysis.irrLiftBps >= 0 ? '+' : ''}{lineOfCreditAnalysis.irrLiftBps.toFixed(0)} bps
+              </div>
+              <div className="loc-zoom-note">Zoomed axis for comparability</div>
+            </div>
+
+            <div className="loc-outcome-chart">
+              <div className="loc-outcome-title">TVPI Comparison</div>
+              <BarChart
+                height={180}
+                data={[
+                  {
+                    label: 'No LOC',
+                    value: lineOfCreditAnalysis.netTVPINoLine,
+                    valueLabel: `${lineOfCreditAnalysis.netTVPINoLine.toFixed(2)}x`,
+                    color: '#1B2A4A'
+                  },
+                  {
+                    label: 'With LOC',
+                    value: lineOfCreditAnalysis.netTVPIWithLine,
+                    valueLabel: `${lineOfCreditAnalysis.netTVPIWithLine.toFixed(2)}x`,
+                    color: '#B5473A'
+                  }
+                ]}
+                showLabels={true}
+                yDomain={[
+                  Math.max(
+                    0,
+                    Math.min(lineOfCreditAnalysis.netTVPINoLine, lineOfCreditAnalysis.netTVPIWithLine) - 0.08
+                  ),
+                  Math.max(lineOfCreditAnalysis.netTVPINoLine, lineOfCreditAnalysis.netTVPIWithLine) + 0.08
+                ]}
+              />
+              <div className="loc-outcome-delta negative">
+                Change: {lineOfCreditAnalysis.tvpiDrag >= 0 ? '+' : ''}{lineOfCreditAnalysis.tvpiDrag.toFixed(3)}x
+              </div>
+              <div className="loc-zoom-note">Zoomed axis for comparability</div>
+            </div>
           </div>
+
+          <div className="net-impact-panel">
+            <div className="net-impact-title">Economic Check</div>
+            <div className="metrics-row">
+              <MetricCard
+                label="Baseline Net IRR (No LOC)"
+                value={formatPercent(lineOfCreditAnalysis.netIRRNoLine)}
+                subtext={`Shared model at ${lineGrossMOIC.toFixed(2)}x gross MOIC`}
+                accent="#2D6B4F"
+              />
+              <MetricCard
+                label="Modeled Net IRR Lift"
+                value={`${lineOfCreditAnalysis.irrLiftBps >= 0 ? '+' : ''}${lineOfCreditAnalysis.irrLiftBps.toFixed(0)} bps`}
+                subtext={`From delaying calls by ~${drawDelayQuarters} quarters`}
+                accent={lineOfCreditAnalysis.irrLiftBps >= 0 ? '#2D6B4F' : '#B5473A'}
+              />
+              <MetricCard
+                label="Total Interest Expense"
+                value={formatCurrency(lineOfCreditAnalysis.interestExpense, 0)}
+                subtext="Fund-level cost that reduces net TVPI"
+                accent="#B5473A"
+              />
+              <MetricCard
+                label="Assumed LOC Capacity"
+                value={formatPercent(lineUtilization)}
+                subtext={`${formatCurrency(lineOfCreditAnalysis.lineCapacity, 0)} max principal, drawn up to limit`}
+                accent="#4A7BA7"
+              />
+            </div>
+          </div>
+          <p className="loc-assumption-note">
+            Assumption: the model draws the line up to the selected capacity whenever quarterly
+            deal funding requires it, then amortizes repayment over the selected delay window.
+          </p>
+
+          <div className="line-credit-tradeoffs">
+            <div className="line-credit-tradeoff positive">
+              <div className="line-credit-tradeoff-title">Why LPs and GPs still use them</div>
+              <p>
+                Fewer small capital calls, administrative flexibility, and more time for LP cash to
+                stay productive elsewhere. For GPs, facilities can improve deal execution speed and
+                create room to close larger deals while syndicating co-investment.
+              </p>
+            </div>
+            <div className="line-credit-tradeoff negative">
+              <div className="line-credit-tradeoff-title">The counterargument is valid</div>
+              <p>
+                Some of the IRR benefit is timing optics. Interest expense is real and lowers TVPI.
+                If line usage is heavy or borrowing costs are high, the drag can overwhelm operational
+                benefits for LP outcomes.
+              </p>
+            </div>
+          </div>
+          <p className="loc-lp-impact-note">
+            In this run, an LP with an illustrative commitment of{' '}
+            <strong>{formatCurrency(lineOfCreditAnalysis.illustrativeLpCommitment, 0)}</strong>{' '}
+            pays about{' '}
+            <strong>{formatCurrency(lineOfCreditAnalysis.illustrativeLpInterestExpense, 0)}</strong>{' '}
+            of additional interest expense for an IRR impact of{' '}
+            <strong>
+              {lineOfCreditAnalysis.irrLiftBps >= 0 ? '+' : ''}
+              {lineOfCreditAnalysis.irrLiftBps.toFixed(0)} bps
+            </strong>.
+          </p>
         </div>
-        <p className="loc-lp-impact-note">
-          In this run, an LP with an illustrative commitment of{' '}
-          <strong>{formatCurrency(lineOfCreditAnalysis.illustrativeLpCommitment, 0)}</strong>{' '}
-          pays about{' '}
-          <strong>{formatCurrency(lineOfCreditAnalysis.illustrativeLpInterestExpense, 0)}</strong>{' '}
-          of additional interest expense for an IRR impact of{' '}
-          <strong>
-            {lineOfCreditAnalysis.irrLiftBps >= 0 ? '+' : ''}
-            {lineOfCreditAnalysis.irrLiftBps.toFixed(0)} bps
-          </strong>.
-        </p>
-      </div>
+      </section>
 
       <WhatWeDidntCover
         items={[
