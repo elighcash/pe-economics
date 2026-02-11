@@ -7,6 +7,12 @@ Interactive educational web app for explaining how private market fund economics
 - A new **Liquidity Management** page scaffold that separates:
   - normal-course liquidity (organic exits/distributions), and
   - secondary market liquidity (selling fund interests).
+- A new **Market Environment** page that turns the quarterly Pathway report into an interactive web explorer:
+  - chapter jumps,
+  - page scrubber,
+  - zoom controls,
+  - thematic navigation lens,
+  - build roadmap for native chart conversion.
 - A reusable visual style and component system for building additional education modules.
 
 ## Current pages
@@ -29,6 +35,13 @@ Interactive educational web app for explaining how private market fund economics
   - Secondaries
   - Liquidity toolkit
   - To be built
+- `Market Environment` (4Q25 report edition)
+  - Report overview
+  - Interactive report explorer
+  - Theme lens
+  - QoQ delta lab
+  - Chart conversion tracker
+  - To be built
 
 ## Run locally
 1. Install dependencies:
@@ -45,11 +58,16 @@ Interactive educational web app for explaining how private market fund economics
 - Header menu (top-right hamburger) now switches between pages:
   - `Private Markets Economics`
   - `Liquidity Management`
+  - `Market Environment`
 - Side nav updates to the active page sections.
 - URL hash is used for section/page targeting.
 
 ## Notes
 - Core modeling is centralized in `src/App.jsx` through shared quarterly schedule math.
+- The 4Q25 environment source PDF is served from:
+  - `public/pathway-4q25-private-market-environment-report.pdf`
+- Environment `QoQ Delta Lab` currently uses structured placeholder values and should be tied to
+  exact report datapoints during chart-by-chart conversion.
 - Baseline assumptions currently anchor around:
   - gross MOIC `2.5x`
   - net TVPI `2.0x`

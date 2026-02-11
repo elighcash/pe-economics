@@ -131,6 +131,28 @@ const LIQUIDITY_SECTION_LINKS = [
   { id: 'liquidity-to-be-built', label: 'To Be Built' }
 ];
 
+const ENVIRONMENT_SECTION_LINKS = [
+  { id: 'environment-hero', label: 'Report Overview' },
+  { id: 'environment-explorer', label: 'Interactive Report' },
+  { id: 'environment-themes', label: 'Theme Lens' },
+  { id: 'environment-delta-lab', label: 'QoQ Delta Lab' },
+  { id: 'environment-conversion', label: 'Chart Conversion' },
+  { id: 'environment-build-plan', label: 'To Be Built' }
+];
+
+const PORTFOLIO_SECTION_LINKS = [
+  { id: 'portfolio-hero', label: 'Portfolio Construction 101' },
+  { id: 'portfolio-single-fund', label: 'Single Fund Lifecycle' },
+  { id: 'portfolio-layering', label: 'Vintage Layering' },
+  { id: 'portfolio-strategies', label: 'Strategy Curves' },
+  { id: 'portfolio-targeting', label: 'Target Exposure Planning' },
+  { id: 'portfolio-types', label: 'Investment Type Mix' },
+  { id: 'portfolio-riffs', label: 'Implementation Riffs' }
+];
+
+const ENVIRONMENT_REPORT_FILE = 'pathway-4q25-private-market-environment-report.pdf';
+const ENVIRONMENT_REPORT_PAGE_COUNT = 48;
+
 const SideNav = ({ sections }) => {
   const [activeId, setActiveId] = useState(sections[0]?.id || '');
 
@@ -759,6 +781,197 @@ const ComparisonChart = ({
   return <canvas ref={canvasRef} className="comparison-canvas" style={{ width: '100%', height }} />;
 };
 
+const LayeredNavBuildChart = ({
+  singleSeries,
+  vintageSeries = [],
+  totalSeries,
+  xLabels = null,
+  xTickStep = 1,
+  yFormatter = (v) => formatCurrency(v, 0),
+  height = 290
+}) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
+
+    canvas.width = width * dpr;
+    canvas.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, h);
+
+    const length = totalSeries?.length || 0;
+    if (length === 0) return;
+
+    const safeTotal = totalSeries.slice(0, length);
+    const safeSingle = (singleSeries || []).slice(0, length);
+    const safeVintages = vintageSeries
+      .map((vintage) => (vintage?.series || []).slice(0, length))
+      .filter((series) => series.length === length);
+
+    const padding = { top: 44, bottom: 50, left: 74, right: 18 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = h - padding.top - padding.bottom;
+    const denominator = Math.max(1, length - 1);
+
+    const allValues = [
+      ...safeTotal,
+      ...safeSingle,
+      ...safeVintages.flat()
+    ].filter((value) => Number.isFinite(value));
+    const maxValue = Math.max(1e-9, ...allValues) * 1.1;
+    const minValue = 0;
+    const range = Math.max(1e-9, maxValue - minValue);
+
+    const xForIndex = (i) => padding.left + (i / denominator) * chartWidth;
+    const yForValue = (v) => padding.top + ((maxValue - v) / range) * chartHeight;
+
+    // Grid and y-axis labels.
+    ctx.strokeStyle = '#E8E6E1';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + (i / 4) * chartHeight;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(width - padding.right, y);
+      ctx.stroke();
+
+      const value = maxValue - (i / 4) * range;
+      ctx.fillStyle = '#9A9690';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'right';
+      ctx.fillText(yFormatter(value), padding.left - 8, y + 4);
+    }
+
+    // Light fill for total portfolio NAV.
+    ctx.beginPath();
+    safeTotal.forEach((value, i) => {
+      const x = xForIndex(i);
+      const y = yForValue(value);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.lineTo(xForIndex(length - 1), yForValue(0));
+    ctx.lineTo(xForIndex(0), yForValue(0));
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(45, 107, 79, 0.08)';
+    ctx.fill();
+
+    // Draw each individual vintage curve.
+    safeVintages.forEach((series) => {
+      ctx.strokeStyle = 'rgba(74, 123, 167, 0.35)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      series.forEach((value, i) => {
+        const x = xForIndex(i);
+        const y = yForValue(value);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    });
+
+    // Single-commitment template curve (dashed).
+    if (safeSingle.length === length) {
+      ctx.strokeStyle = '#9A9690';
+      ctx.lineWidth = 1.8;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      safeSingle.forEach((value, i) => {
+        const x = xForIndex(i);
+        const y = yForValue(value);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // Summed portfolio NAV (bold).
+    ctx.strokeStyle = '#2D6B4F';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    safeTotal.forEach((value, i) => {
+      const x = xForIndex(i);
+      const y = yForValue(value);
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // End marker and label.
+    const endX = xForIndex(length - 1);
+    const endY = yForValue(safeTotal[length - 1]);
+    ctx.fillStyle = '#2D6B4F';
+    ctx.beginPath();
+    ctx.arc(endX, endY, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.font = '600 10px Helvetica Neue';
+    const totalLabel = 'Summed Portfolio NAV';
+    const labelWidth = ctx.measureText(totalLabel).width + 10;
+    const labelX = Math.max(padding.left + 4, Math.min(width - padding.right - labelWidth, endX - labelWidth - 8));
+    const labelY = Math.max(padding.top + 6, endY - 18);
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.fillRect(labelX, labelY, labelWidth, 14);
+    ctx.strokeStyle = 'rgba(45, 107, 79, 0.45)';
+    ctx.strokeRect(labelX, labelY, labelWidth, 14);
+    ctx.fillStyle = '#2D6B4F';
+    ctx.textAlign = 'left';
+    ctx.fillText(totalLabel, labelX + 5, labelY + 10);
+
+    // Legend.
+    const legendItems = [
+      { label: 'Single Commitment NAV Template', color: '#9A9690', dashed: true },
+      { label: 'Individual Vintage NAV Curves', color: 'rgba(74, 123, 167, 0.8)', dashed: false },
+      { label: 'Summed Portfolio NAV', color: '#2D6B4F', dashed: false }
+    ];
+    let legendX = padding.left;
+    let legendY = 12;
+    ctx.font = '11px system-ui';
+    ctx.textAlign = 'left';
+    legendItems.forEach((item) => {
+      const textWidth = ctx.measureText(item.label).width;
+      const itemWidth = textWidth + 34;
+      if (legendX + itemWidth > width - padding.right && legendX > padding.left) {
+        legendX = padding.left;
+        legendY += 14;
+      }
+      ctx.strokeStyle = item.color;
+      ctx.lineWidth = 2;
+      if (item.dashed) ctx.setLineDash([5, 4]);
+      else ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(legendX, legendY + 2);
+      ctx.lineTo(legendX + 20, legendY + 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#4A4641';
+      ctx.fillText(item.label, legendX + 26, legendY + 5);
+      legendX += itemWidth + 14;
+    });
+
+    // X-axis labels.
+    for (let i = 0; i < length; i++) {
+      if (i !== 0 && i !== length - 1 && i % xTickStep !== 0) continue;
+      const x = xForIndex(i);
+      ctx.fillStyle = '#9A9690';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'center';
+      const label = xLabels && xLabels[i] ? xLabels[i] : `Yr ${i}`;
+      ctx.fillText(label, x, h - padding.bottom + 20);
+    }
+  }, [singleSeries, vintageSeries, totalSeries, xLabels, xTickStep, yFormatter]);
+
+  return <canvas ref={canvasRef} className="comparison-canvas layered-nav-canvas" style={{ width: '100%', height }} />;
+};
+
 const LocTimingColumnChart = ({
   data,
   height = 220,
@@ -1007,6 +1220,20 @@ const Header = ({ compactControls, onToggleCompactControls, activePage, onNaviga
                   onClick={() => handleNavigate('liquidity')}
                 >
                   Liquidity Management
+                </button>
+                <button
+                  type="button"
+                  className={`header-menu-item ${activePage === 'portfolio' ? 'active' : ''}`}
+                  onClick={() => handleNavigate('portfolio')}
+                >
+                  Portfolio Construction
+                </button>
+                <button
+                  type="button"
+                  className={`header-menu-item ${activePage === 'environment' ? 'active' : ''}`}
+                  onClick={() => handleNavigate('environment')}
+                >
+                  Market Environment
                 </button>
                 <div className="header-menu-divider" />
                 <button type="button" className="header-menu-item" onClick={handleToggleCompact}>
@@ -1648,6 +1875,103 @@ const buildQuarterlySchedule = ({
     netCashFlows,
     totalQuarters
   };
+};
+
+const buildAnnualGrossCurve = (fundLife, investmentPeriod, grossMultiple) => {
+  const quarterly = generateQuarterlyData(fundLife, investmentPeriod, grossMultiple);
+  const annual = [{ year: 0, drawdown: 0, dpi: 0, nav: 0, tvpi: 0 }];
+
+  for (let year = 1; year <= fundLife; year++) {
+    const quarterIndex = Math.min(quarterly.length - 1, year * 4 - 1);
+    const row = quarterly[quarterIndex];
+    annual.push({
+      year,
+      drawdown: row.drawdown,
+      dpi: row.dpi,
+      nav: row.rvpi,
+      tvpi: row.dpi + row.rvpi
+    });
+  }
+
+  return annual;
+};
+
+const getCurvePointAtAge = (curve, age) => {
+  if (!curve || curve.length === 0) {
+    return { year: 0, drawdown: 0, dpi: 0, nav: 0, tvpi: 0 };
+  }
+  if (age <= 0) return curve[0];
+  const maxYear = curve[curve.length - 1].year;
+  if (age >= maxYear) return curve[curve.length - 1];
+
+  const lowerAge = Math.floor(age);
+  const upperAge = Math.ceil(age);
+  if (lowerAge === upperAge) return curve[lowerAge];
+
+  const lower = curve[lowerAge];
+  const upper = curve[upperAge];
+  const t = age - lowerAge;
+  return {
+    year: age,
+    drawdown: lerp(lower.drawdown, upper.drawdown, t),
+    dpi: lerp(lower.dpi, upper.dpi, t),
+    nav: lerp(lower.nav, upper.nav, t),
+    tvpi: lerp(lower.tvpi, upper.tvpi, t)
+  };
+};
+
+const simulateLayeredPortfolio = ({
+  annualCommitmentM,
+  commitmentYears,
+  commitmentGrowth,
+  curve,
+  horizonYears
+}) => {
+  const rows = [];
+  let totalCommittedM = 0;
+  for (let y = 0; y < commitmentYears; y++) {
+    totalCommittedM += annualCommitmentM * Math.pow(1 + commitmentGrowth, y);
+  }
+
+  for (let year = 0; year <= horizonYears; year++) {
+    let calledM = 0;
+    let navM = 0;
+    let distM = 0;
+    let committedToDateM = 0;
+
+    for (let vintage = 0; vintage < commitmentYears; vintage++) {
+      const commitM = annualCommitmentM * Math.pow(1 + commitmentGrowth, vintage);
+      if (year < vintage) continue;
+      committedToDateM += commitM;
+      const age = year - vintage;
+      const point = getCurvePointAtAge(curve, age);
+      calledM += commitM * point.drawdown;
+      navM += commitM * point.nav;
+      distM += commitM * point.dpi;
+    }
+
+    rows.push({
+      year,
+      calledM,
+      navM,
+      distM,
+      committedToDateM,
+      tvpiOnCommitted: committedToDateM > 0 ? (navM + distM) / committedToDateM : 0
+    });
+  }
+
+  return {
+    years: rows,
+    totalCommittedM
+  };
+};
+
+const PORTFOLIO_STRATEGY_CURVES = {
+  buyout: { label: 'Buyout', fundLife: 12, investmentPeriod: 5, grossMultiple: 2.5, color: '#1B2A4A' },
+  growth: { label: 'Growth Equity', fundLife: 10, investmentPeriod: 4, grossMultiple: 2.6, color: '#2D6B4F' },
+  venture: { label: 'Venture Capital', fundLife: 13, investmentPeriod: 6, grossMultiple: 2.8, color: '#4A7BA7' },
+  secondary: { label: 'Secondaries', fundLife: 8, investmentPeriod: 2, grossMultiple: 1.9, color: '#A8892E' },
+  direct: { label: 'Direct Equity', fundLife: 7, investmentPeriod: 2, grossMultiple: 2.0, color: '#B5473A' }
 };
 
 // ============================================================================
@@ -5177,6 +5501,1147 @@ const LiquidityToBeBuiltSection = () => (
   </section>
 );
 
+const EnvironmentHeroSection = () => (
+  <section id="environment-hero" className="hero-section environment-hero">
+    <div className="pathway-badge">Pathway Research</div>
+    <h1>Private Market Environment</h1>
+    <p className="hero-subtitle">Fourth Quarter 2025</p>
+    <p className="hero-purpose-note">
+      This interactive edition preserves the source report and adds a navigator for faster review,
+      thematic filtering, and chart-by-chart conversion planning.
+    </p>
+    <div className="hero-scroll-note">Explore the PDF and jump directly to sections below</div>
+  </section>
+);
+
+const EnvironmentExplorerSection = () => {
+  const chapters = [
+    { id: 'all', label: 'Full Report', start: 1, end: ENVIRONMENT_REPORT_PAGE_COUNT },
+    { id: 'cover', label: 'Cover + Intro', start: 1, end: 3 },
+    { id: 'market', label: 'Market Backdrop', start: 4, end: 14 },
+    { id: 'performance', label: 'Performance + Valuation', start: 15, end: 28 },
+    { id: 'liquidity', label: 'Liquidity + Exits', start: 29, end: 40 },
+    { id: 'appendix', label: 'Appendix', start: 41, end: ENVIRONMENT_REPORT_PAGE_COUNT }
+  ];
+
+  const [chapterId, setChapterId] = useState('all');
+  const [page, setPage] = useState(1);
+  const [zoom, setZoom] = useState(110);
+  const activeChapter = chapters.find((chapter) => chapter.id === chapterId) || chapters[0];
+  const pdfBaseUrl = `${import.meta.env.BASE_URL || '/'}${ENVIRONMENT_REPORT_FILE}`;
+  const pdfUrl = `${pdfBaseUrl}#page=${page}&zoom=${zoom}`;
+
+  useEffect(() => {
+    if (page < activeChapter.start || page > activeChapter.end) {
+      setPage(activeChapter.start);
+    }
+  }, [activeChapter, page]);
+
+  return (
+    <section id="environment-explorer" className="content-section">
+      <h2>Interactive Report Explorer</h2>
+      <p>
+        Source PDF is embedded directly for fidelity. Use the controls to jump by chapter,
+        scrub page-by-page, and zoom without losing context.
+      </p>
+
+      <div className="interactive-block environment-explorer-block">
+        <div className="environment-toolbar">
+          <div className="environment-toolbar-group">
+            <span className="environment-toolbar-label">Chapter</span>
+            <select
+              className="environment-select"
+              value={chapterId}
+              onChange={(e) => setChapterId(e.target.value)}
+            >
+              {chapters.map((chapter) => (
+                <option key={chapter.id} value={chapter.id}>
+                  {chapter.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="environment-toolbar-group environment-toolbar-range">
+            <span className="environment-toolbar-label">Page</span>
+            <div className="environment-page-controls">
+              <button
+                type="button"
+                className="environment-page-btn"
+                onClick={() => setPage((prev) => Math.max(activeChapter.start, prev - 1))}
+              >
+                Prev
+              </button>
+              <input
+                type="range"
+                min={activeChapter.start}
+                max={activeChapter.end}
+                step={1}
+                value={page}
+                onChange={(e) => setPage(parseInt(e.target.value, 10))}
+                className="environment-page-slider"
+              />
+              <button
+                type="button"
+                className="environment-page-btn"
+                onClick={() => setPage((prev) => Math.min(activeChapter.end, prev + 1))}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+
+          <div className="environment-toolbar-group">
+            <span className="environment-toolbar-label">Zoom</span>
+            <select
+              className="environment-select"
+              value={zoom}
+              onChange={(e) => setZoom(parseInt(e.target.value, 10))}
+            >
+              {[90, 100, 110, 125, 150].map((z) => (
+                <option key={z} value={z}>
+                  {z}%
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="environment-page-meta">
+          <div><strong>Viewing:</strong> Page {page} of {ENVIRONMENT_REPORT_PAGE_COUNT}</div>
+          <div>
+            <a className="environment-open-link" href={pdfBaseUrl} target="_blank" rel="noreferrer">
+              Open full PDF in new tab
+            </a>
+          </div>
+        </div>
+
+        <div className="environment-frame-wrap">
+          <iframe
+            title="Pathway 4Q25 Private Market Environment Report"
+            src={pdfUrl}
+            className="environment-pdf-frame"
+          />
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const EnvironmentThemesSection = () => {
+  const themes = [
+    {
+      id: 'macro',
+      label: 'Macro Regime',
+      pages: 'pp. 4-10',
+      text: 'How rates, inflation, and policy volatility are framing private market entry and exit conditions.'
+    },
+    {
+      id: 'valuations',
+      label: 'Valuations',
+      pages: 'pp. 11-19',
+      text: 'Where valuation resets have already happened versus where multiples remain sticky by strategy.'
+    },
+    {
+      id: 'liquidity',
+      label: 'Liquidity',
+      pages: 'pp. 20-33',
+      text: 'Signals on realizations, distributions, and the pace of normalization in LP cash return cycles.'
+    },
+    {
+      id: 'secondaries',
+      label: 'Secondaries',
+      pages: 'pp. 34-40',
+      text: 'Secondary market depth, pricing dispersion, and how transaction activity is evolving.'
+    },
+    {
+      id: 'positioning',
+      label: 'LP Positioning',
+      pages: 'pp. 41-48',
+      text: 'Portfolio construction implications and where conviction can be highest given current market conditions.'
+    }
+  ];
+  const [activeTheme, setActiveTheme] = useState(themes[0].id);
+  const current = themes.find((theme) => theme.id === activeTheme) || themes[0];
+
+  return (
+    <section id="environment-themes" className="content-section">
+      <h2>Theme Lens</h2>
+      <p>
+        The report is primarily data-driven. This lens helps users triage by topic first,
+        then jump to relevant pages in the source report.
+      </p>
+      <div className="interactive-block">
+        <div className="environment-theme-pills">
+          {themes.map((theme) => (
+            <button
+              key={theme.id}
+              type="button"
+              className={`environment-theme-pill ${theme.id === activeTheme ? 'active' : ''}`}
+              onClick={() => setActiveTheme(theme.id)}
+            >
+              {theme.label}
+            </button>
+          ))}
+        </div>
+        <div className="environment-theme-detail">
+          <div className="environment-theme-pages">{current.pages}</div>
+          <p>{current.text}</p>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const EnvironmentDeltaLabSection = () => {
+  const deltaDatasets = {
+    '2q-to-3q': {
+      label: '2Q25 to 3Q25',
+      metrics: [
+        { id: 'fundraising', name: 'Fundraising Activity', unit: 'idx', prev: 92, curr: 89, higherIsBetter: true, pages: 'pp. 6-8' },
+        { id: 'dealflow', name: 'Deal Activity', unit: 'idx', prev: 95, curr: 101, higherIsBetter: true, pages: 'pp. 9-12' },
+        { id: 'exitflow', name: 'Exit Activity', unit: 'idx', prev: 83, curr: 88, higherIsBetter: true, pages: 'pp. 27-31' },
+        { id: 'secondarydisc', name: 'Secondary Discount', unit: 'bps', prev: 1320, curr: 1190, higherIsBetter: false, pages: 'pp. 34-37' },
+        { id: 'distyield', name: 'Distribution Yield', unit: '%', prev: 5.8, curr: 6.1, higherIsBetter: true, pages: 'pp. 29-33' }
+      ]
+    },
+    '3q-to-4q': {
+      label: '3Q25 to 4Q25',
+      metrics: [
+        { id: 'fundraising', name: 'Fundraising Activity', unit: 'idx', prev: 89, curr: 93, higherIsBetter: true, pages: 'pp. 6-8' },
+        { id: 'dealflow', name: 'Deal Activity', unit: 'idx', prev: 101, curr: 104, higherIsBetter: true, pages: 'pp. 9-12' },
+        { id: 'exitflow', name: 'Exit Activity', unit: 'idx', prev: 88, curr: 96, higherIsBetter: true, pages: 'pp. 27-31' },
+        { id: 'secondarydisc', name: 'Secondary Discount', unit: 'bps', prev: 1190, curr: 1090, higherIsBetter: false, pages: 'pp. 34-37' },
+        { id: 'distyield', name: 'Distribution Yield', unit: '%', prev: 6.1, curr: 6.6, higherIsBetter: true, pages: 'pp. 29-33' }
+      ]
+    }
+  };
+
+  const [selectedPair, setSelectedPair] = useState('3q-to-4q');
+  const [themeFilter, setThemeFilter] = useState('all');
+  const selectedData = deltaDatasets[selectedPair];
+
+  const filteredMetrics = useMemo(() => {
+    if (themeFilter === 'all') return selectedData.metrics;
+    const byTheme = {
+      liquidity: ['exitflow', 'secondarydisc', 'distyield'],
+      activity: ['fundraising', 'dealflow'],
+      pricing: ['secondarydisc']
+    };
+    const ids = new Set(byTheme[themeFilter] || []);
+    return selectedData.metrics.filter((metric) => ids.has(metric.id));
+  }, [selectedData, themeFilter]);
+
+  const maxAbsDelta = Math.max(
+    1,
+    ...filteredMetrics.map((metric) => Math.abs(metric.curr - metric.prev))
+  );
+
+  const formatMetricValue = (metric, value) => {
+    if (metric.unit === '%') return `${value.toFixed(1)}%`;
+    if (metric.unit === 'bps') return `${Math.round(value).toLocaleString()} bps`;
+    return `${value.toFixed(0)} idx`;
+  };
+
+  return (
+    <section id="environment-delta-lab" className="content-section">
+      <h2>Quarter-on-Quarter Delta Lab</h2>
+      <p>
+        First live build from the roadmap: a delta workspace for comparing selected report metrics
+        quarter-over-quarter. This is where trend callouts can be generated before writing commentary.
+      </p>
+      <div className="interactive-block">
+        <div className="environment-toolbar">
+          <div className="environment-toolbar-group">
+            <span className="environment-toolbar-label">Quarter Pair</span>
+            <select
+              className="environment-select"
+              value={selectedPair}
+              onChange={(e) => setSelectedPair(e.target.value)}
+            >
+              {Object.entries(deltaDatasets).map(([key, dataset]) => (
+                <option key={key} value={key}>{dataset.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="environment-toolbar-group">
+            <span className="environment-toolbar-label">Theme Filter</span>
+            <div className="environment-theme-pills compact">
+              {[
+                { value: 'all', label: 'All' },
+                { value: 'liquidity', label: 'Liquidity' },
+                { value: 'activity', label: 'Activity' },
+                { value: 'pricing', label: 'Pricing' }
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  className={`environment-theme-pill ${themeFilter === opt.value ? 'active' : ''}`}
+                  onClick={() => setThemeFilter(opt.value)}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="environment-toolbar-group">
+            <span className="environment-toolbar-label">Coverage</span>
+            <div className="environment-kpi-inline">
+              {filteredMetrics.length} metrics
+            </div>
+          </div>
+        </div>
+
+        <div className="environment-delta-grid">
+          {filteredMetrics.map((metric) => {
+            const delta = metric.curr - metric.prev;
+            const goodDirection = metric.higherIsBetter ? delta >= 0 : delta <= 0;
+            const magnitudePct = Math.max(6, (Math.abs(delta) / maxAbsDelta) * 100);
+            return (
+              <div key={metric.id} className="environment-delta-card">
+                <div className="environment-delta-head">
+                  <span>{metric.name}</span>
+                  <span className="environment-delta-pages">{metric.pages}</span>
+                </div>
+                <div className="environment-delta-values">
+                  <span>{formatMetricValue(metric, metric.prev)}</span>
+                  <span className={`environment-delta-change ${goodDirection ? 'good' : 'bad'}`}>
+                    {delta >= 0 ? '+' : ''}{formatMetricValue(metric, delta)}
+                  </span>
+                  <span>{formatMetricValue(metric, metric.curr)}</span>
+                </div>
+                <div className="environment-delta-bar-track">
+                  <div
+                    className={`environment-delta-bar ${goodDirection ? 'good' : 'bad'}`}
+                    style={{ width: `${magnitudePct}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="bridge-note">
+          Note: values here are structured placeholders for the interactive layer. They should be replaced
+          with exact 4Q25 report datapoints during chart-by-chart conversion.
+        </p>
+      </div>
+    </section>
+  );
+};
+
+const EnvironmentConversionSection = () => {
+  const items = [
+    { id: 1, chart: 'Liquidity Pace Dashboard', pages: '29-33', status: 'built', theme: 'Liquidity', effort: 'M' },
+    { id: 2, chart: 'Quarter Delta Lab', pages: 'Cross-report', status: 'built', theme: 'Cross-theme', effort: 'M' },
+    { id: 3, chart: 'Exit Recovery Curve', pages: '27-31', status: 'next', theme: 'Liquidity', effort: 'M' },
+    { id: 4, chart: 'Secondary Pricing Dispersion', pages: '34-37', status: 'next', theme: 'Secondaries', effort: 'L' },
+    { id: 5, chart: 'Fundraising Vintage Heatmap', pages: '6-8', status: 'planned', theme: 'Fundraising', effort: 'L' },
+    { id: 6, chart: 'Valuation Reset Monitor', pages: '11-19', status: 'planned', theme: 'Valuations', effort: 'M' }
+  ];
+  const [statusFilter, setStatusFilter] = useState('all');
+  const visible = statusFilter === 'all' ? items : items.filter((item) => item.status === statusFilter);
+  const builtCount = items.filter((item) => item.status === 'built').length;
+  const progressPct = (builtCount / items.length) * 100;
+
+  return (
+    <section id="environment-conversion" className="content-section">
+      <h2>Chart Conversion Tracker</h2>
+      <p>
+        This tracker moves the environment report from static pages to native web charts over time,
+        with explicit status and expected effort.
+      </p>
+      <div className="interactive-block">
+        <div className="environment-conversion-top">
+          <div className="environment-conversion-progress">
+            <div className="environment-conversion-label">Conversion Progress</div>
+            <div className="environment-conversion-track">
+              <div className="environment-conversion-fill" style={{ width: `${progressPct}%` }} />
+            </div>
+            <div className="environment-conversion-meta">{builtCount} of {items.length} items converted</div>
+          </div>
+          <div className="environment-theme-pills compact">
+            {[
+              { value: 'all', label: 'All' },
+              { value: 'built', label: 'Built' },
+              { value: 'next', label: 'Next' },
+              { value: 'planned', label: 'Planned' }
+            ].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                className={`environment-theme-pill ${statusFilter === option.value ? 'active' : ''}`}
+                onClick={() => setStatusFilter(option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="environment-table-wrap">
+          <table className="environment-table">
+            <thead>
+              <tr>
+                <th>Chart</th>
+                <th>Pages</th>
+                <th>Theme</th>
+                <th>Status</th>
+                <th>Effort</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map((item) => (
+                <tr key={item.id}>
+                  <td>{item.chart}</td>
+                  <td>{item.pages}</td>
+                  <td>{item.theme}</td>
+                  <td>
+                    <span className={`environment-status ${item.status}`}>
+                      {item.status}
+                    </span>
+                  </td>
+                  <td>{item.effort}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const EnvironmentBuildPlanSection = () => (
+  <section id="environment-build-plan" className="content-section">
+    <h2>To Be Built</h2>
+    <p>
+      Current state now includes the report explorer, theme lens, and first-pass conversion tooling.
+      Remaining work below focuses on data sourcing discipline and publication workflows.
+    </p>
+
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Data Binding</h3>
+        <p>Replace placeholder delta metrics with exact values from the 4Q25 source workbook and footnotes.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Narrative Layer</h3>
+        <p>Add analyst-written chart annotations that can be toggled on/off for concise vs full commentary view.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Publishing Mode</h3>
+        <p>Generate client-ready snapshot exports and deep links by section for sharing outside the full report.</p>
+      </div>
+    </div>
+  </section>
+);
+
+const PortfolioHeroSection = () => (
+  <section id="portfolio-hero" className="hero-section portfolio-hero">
+    <div className="pathway-badge">Pathway Education</div>
+    <h1>Portfolio Construction in Private Markets</h1>
+    <p className="hero-subtitle">How commitments stack over time to produce durable NAV exposure</p>
+    <p className="hero-purpose-note">
+      This guide starts with one fund lifecycle, then layers multiple vintages and strategy curves
+      to show what commitment pacing is required to stay inside a target exposure range.
+    </p>
+    <div className="hero-scroll-note">Start with one commitment, then build the full program</div>
+  </section>
+);
+
+const PortfolioSingleFundSection = () => {
+  const DEFAULTS = {
+    commitmentM: 100,
+    grossMultiple: 2.5,
+    fundLife: 12,
+    investmentPeriod: 5
+  };
+  const [commitmentM, setCommitmentM] = useState(DEFAULTS.commitmentM);
+  const [grossMultiple, setGrossMultiple] = useState(DEFAULTS.grossMultiple);
+  const [fundLife, setFundLife] = useState(DEFAULTS.fundLife);
+  const [investmentPeriod, setInvestmentPeriod] = useState(DEFAULTS.investmentPeriod);
+
+  const annualCurve = useMemo(
+    () => buildAnnualGrossCurve(fundLife, Math.min(investmentPeriod, Math.max(1, fundLife - 1)), grossMultiple),
+    [fundLife, investmentPeriod, grossMultiple]
+  );
+
+  const series = useMemo(() => {
+    const called = annualCurve.map((row) => row.drawdown * commitmentM);
+    const nav = annualCurve.map((row) => row.nav * commitmentM);
+    const dist = annualCurve.map((row) => row.dpi * commitmentM);
+    const tv = annualCurve.map((row) => (row.nav + row.dpi) * commitmentM);
+    return { called, nav, dist, tv };
+  }, [annualCurve, commitmentM]);
+
+  const peakNavM = Math.max(...series.nav);
+  const peakNavYear = series.nav.findIndex((value) => value === peakNavM);
+  const finalNetValueM = series.tv[series.tv.length - 1];
+  const yearLabels = annualCurve.map((row) => `Yr ${row.year}`);
+
+  const resetSection = () => {
+    setCommitmentM(DEFAULTS.commitmentM);
+    setGrossMultiple(DEFAULTS.grossMultiple);
+    setFundLife(DEFAULTS.fundLife);
+    setInvestmentPeriod(DEFAULTS.investmentPeriod);
+  };
+
+  return (
+    <section id="portfolio-single-fund" className="content-section">
+      <h2>1. Single Fund Lifecycle</h2>
+      <p>
+        A single PE commitment is not deployed on day one. Capital is called over several years,
+        NAV builds as assets mature, and NAV later declines as distributions are paid.
+      </p>
+      <div className="interactive-block">
+        <div className="block-actions">
+          <ResetButton onClick={resetSection} />
+        </div>
+        <div className="sliders-grid">
+          <Slider
+            label="Commitment"
+            value={commitmentM}
+            min={25}
+            max={300}
+            step={5}
+            format={(v) => formatCurrency(v * 1e6, 0)}
+            onChange={setCommitmentM}
+            accent="#1B2A4A"
+          />
+          <Slider
+            label="Gross MOIC"
+            value={grossMultiple}
+            min={1.5}
+            max={3.5}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setGrossMultiple}
+            accent="#2D6B4F"
+          />
+          <Slider
+            label="Fund Life"
+            value={fundLife}
+            min={8}
+            max={15}
+            step={1}
+            format={(v) => `${Math.round(v)} years`}
+            onChange={(v) => setFundLife(Math.round(v))}
+            accent="#C9A84C"
+          />
+          <Slider
+            label="Investment Period"
+            value={investmentPeriod}
+            min={3}
+            max={7}
+            step={1}
+            format={(v) => `${Math.round(v)} years`}
+            onChange={(v) => setInvestmentPeriod(Math.round(v))}
+            accent="#B5473A"
+          />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard label="Peak NAV" value={formatCurrency(peakNavM * 1e6, 0)} subtext={`Around year ${peakNavYear}`} accent="#2D6B4F" />
+          <MetricCard label="Final Gross Value" value={formatCurrency(finalNetValueM * 1e6, 0)} subtext={`${grossMultiple.toFixed(2)}x on commitment`} accent="#1B2A4A" />
+          <MetricCard label="Capital Fully Drawn" value={`${(annualCurve[annualCurve.length - 1].drawdown * 100).toFixed(0)}%`} subtext="By end of investment period" accent="#1B2A4A" />
+        </div>
+
+        <h3 className="chart-title">Drawdown vs Distributions</h3>
+        <ComparisonChart
+          seriesA={series.called}
+          seriesB={series.dist}
+          labelA="Cumulative Capital Called"
+          labelB="Cumulative Distributions"
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={(v) => formatCurrency(v * 1e6, 0)}
+          colorA="#1B2A4A"
+          colorB="#9AB8D8"
+          height={250}
+        />
+
+        <h3 className="chart-title">NAV Path and Total Value (NAV + DPI)</h3>
+        <ComparisonChart
+          seriesA={series.nav}
+          seriesB={series.tv}
+          labelA="NAV"
+          labelB="Total Value"
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={(v) => formatCurrency(v * 1e6, 0)}
+          colorA="#2D6B4F"
+          colorB="#1B2A4A"
+          height={250}
+        />
+      </div>
+    </section>
+  );
+};
+
+const PortfolioLayeringSection = ({ globalGrossMultiple, onGrossMultipleChange }) => {
+  const DEFAULTS = {
+    annualCommitmentM: 125,
+    displayYears: 22,
+    commitmentGrowth: 0.0,
+    localGrossMultiple: 2.5
+  };
+  const [annualCommitmentM, setAnnualCommitmentM] = useState(DEFAULTS.annualCommitmentM);
+  const [displayYears, setDisplayYears] = useState(DEFAULTS.displayYears);
+  const [commitmentGrowth, setCommitmentGrowth] = useState(DEFAULTS.commitmentGrowth);
+  const [localGrossMultiple, setLocalGrossMultiple] = useState(DEFAULTS.localGrossMultiple);
+  const grossMultiple = globalGrossMultiple ?? localGrossMultiple;
+  const setGrossMultiple = onGrossMultipleChange ?? setLocalGrossMultiple;
+  const fundLife = 12;
+
+  const annualCurve = useMemo(() => buildAnnualGrossCurve(fundLife, 5, grossMultiple), [fundLife, grossMultiple]);
+  const horizonYears = displayYears;
+  const commitmentYears = displayYears + 1;
+  const layered = useMemo(() => simulateLayeredPortfolio({
+    annualCommitmentM,
+    commitmentYears,
+    commitmentGrowth,
+    curve: annualCurve,
+    horizonYears
+  }), [annualCommitmentM, commitmentYears, commitmentGrowth, annualCurve, horizonYears]);
+
+  const single = useMemo(() => simulateLayeredPortfolio({
+    annualCommitmentM,
+    commitmentYears: 1,
+    commitmentGrowth: 0,
+    curve: annualCurve,
+    horizonYears
+  }), [annualCommitmentM, annualCurve, horizonYears]);
+
+  const seriesLayeredNav = layered.years.map((row) => row.navM);
+  const seriesSingleNav = single.years.map((row) => row.navM);
+  const seriesCalled = layered.years.map((row) => row.calledM);
+  const seriesDist = layered.years.map((row) => row.distM);
+  const yearLabels = layered.years.map((row) => `Yr ${row.year}`);
+  const vintageNavSeries = useMemo(() => {
+    return Array.from({ length: commitmentYears }, (_, vintage) => {
+      const commitM = annualCommitmentM * Math.pow(1 + commitmentGrowth, vintage);
+      const series = layered.years.map((row) => {
+        if (row.year < vintage) return 0;
+        const age = row.year - vintage;
+        const point = getCurvePointAtAge(annualCurve, age);
+        return commitM * point.nav;
+      });
+      return { label: `Vintage ${vintage + 1}`, series };
+    });
+  }, [annualCommitmentM, commitmentGrowth, commitmentYears, layered.years, annualCurve]);
+
+  const peakNavM = Math.max(...seriesLayeredNav);
+  const peakYear = layered.years.findIndex((row) => row.navM === peakNavM);
+  const trailingWindow = layered.years.slice(Math.max(0, layered.years.length - 6));
+  const trailingAverageNavM = trailingWindow.length > 0
+    ? trailingWindow.reduce((sum, row) => sum + row.navM, 0) / trailingWindow.length
+    : 0;
+  const trailingMinNavM = trailingWindow.length > 0 ? Math.min(...trailingWindow.map((row) => row.navM)) : 0;
+  const trailingMaxNavM = trailingWindow.length > 0 ? Math.max(...trailingWindow.map((row) => row.navM)) : 0;
+  const steadyBandPct = trailingAverageNavM > 1e-6
+    ? ((trailingMaxNavM - trailingMinNavM) / trailingAverageNavM) * 100
+    : 0;
+
+  const resetSection = () => {
+    setAnnualCommitmentM(DEFAULTS.annualCommitmentM);
+    setDisplayYears(DEFAULTS.displayYears);
+    setCommitmentGrowth(DEFAULTS.commitmentGrowth);
+    setGrossMultiple(DEFAULTS.localGrossMultiple);
+  };
+
+  return (
+    <section id="portfolio-layering" className="content-section">
+      <h2>2. Vintage Layering: From One Commitment to a Program</h2>
+      <p>
+        A pension plan does not own one fund. It owns many vintages simultaneously. Layering commitments
+        year-over-year smooths exposure and can create a more stable NAV base than a single vintage ever could.
+      </p>
+      <div className="interactive-block">
+        <div className="block-actions">
+          <ResetButton onClick={resetSection} />
+        </div>
+        <div className="sliders-grid">
+          <Slider
+            label="Annual Commitment"
+            value={annualCommitmentM}
+            min={50}
+            max={350}
+            step={5}
+            format={(v) => formatCurrency(v * 1e6, 0)}
+            onChange={setAnnualCommitmentM}
+            accent="#1B2A4A"
+          />
+          <Slider
+            label="Years Shown"
+            value={displayYears}
+            min={14}
+            max={28}
+            step={1}
+            format={(v) => `${Math.round(v)} years`}
+            onChange={(v) => setDisplayYears(Math.round(v))}
+            accent="#2D6B4F"
+          />
+          <Slider
+            label="Commitment Growth Rate"
+            value={commitmentGrowth}
+            min={-0.05}
+            max={0.12}
+            step={0.005}
+            format={(v) => formatPercent(v, 1)}
+            onChange={setCommitmentGrowth}
+            accent="#C9A84C"
+          />
+          <Slider
+            label="Gross MOIC Assumption"
+            value={grossMultiple}
+            min={1.75}
+            max={3.25}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setGrossMultiple}
+            accent="#B5473A"
+          />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard label="Total Committed" value={formatCurrency(layered.totalCommittedM * 1e6, 0)} subtext={`Across ${commitmentYears} annual vintages`} accent="#1B2A4A" />
+          <MetricCard label="Peak Program NAV" value={formatCurrency(peakNavM * 1e6, 0)} subtext={`Peaks around year ${peakYear}`} accent="#2D6B4F" />
+          <MetricCard label="Steady-State Band (Last 5Y)" value={`±${(steadyBandPct / 2).toFixed(1)}%`} subtext={`Around ${formatCurrency(trailingAverageNavM * 1e6, 0)} NAV`} accent="#1B2A4A" />
+        </div>
+
+        <h3 className="chart-title">How Single-Vintage NAV Curves Stack Into Portfolio NAV</h3>
+        <LayeredNavBuildChart
+          singleSeries={seriesSingleNav}
+          vintageSeries={vintageNavSeries}
+          totalSeries={seriesLayeredNav}
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={(v) => formatCurrency(v * 1e6, 0)}
+          height={300}
+        />
+        <p className="portfolio-inline-note">
+          Each light-blue curve is one vintage's NAV path. The dark-green line is the point-by-point sum of all those curves.
+        </p>
+
+        <h3 className="chart-title">Layered Program: Called Capital vs Cumulative Distributions</h3>
+        <ComparisonChart
+          seriesA={seriesCalled}
+          seriesB={seriesDist}
+          labelA="Called Capital"
+          labelB="Distributions"
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={(v) => formatCurrency(v * 1e6, 0)}
+          colorA="#1B2A4A"
+          colorB="#9AB8D8"
+          height={250}
+        />
+
+        <p className="portfolio-inline-note">
+          Keeping commitments active each year is what allows NAV to flatten toward a steady state, but it takes time.
+          Later in this tool, we can look at ways to achieve a target exposure faster, or adjust an existing portfolio
+          downward rapidly through the use of other investment types like secondaries and direct equity.
+        </p>
+      </div>
+    </section>
+  );
+};
+
+const PortfolioStrategyCurvesSection = () => {
+  const [strategyA, setStrategyA] = useState('buyout');
+  const [strategyB, setStrategyB] = useState('venture');
+  const [metricView, setMetricView] = useState('drawdown');
+
+  const curveA = useMemo(() => {
+    const strategy = PORTFOLIO_STRATEGY_CURVES[strategyA];
+    return buildAnnualGrossCurve(strategy.fundLife, strategy.investmentPeriod, strategy.grossMultiple);
+  }, [strategyA]);
+  const curveB = useMemo(() => {
+    const strategy = PORTFOLIO_STRATEGY_CURVES[strategyB];
+    return buildAnnualGrossCurve(strategy.fundLife, strategy.investmentPeriod, strategy.grossMultiple);
+  }, [strategyB]);
+
+  const maxYears = Math.max(
+    PORTFOLIO_STRATEGY_CURVES[strategyA].fundLife,
+    PORTFOLIO_STRATEGY_CURVES[strategyB].fundLife
+  );
+  const years = Array.from({ length: maxYears + 1 }, (_, i) => i);
+
+  const seriesA = years.map((year) => getCurvePointAtAge(curveA, year)[metricView]);
+  const seriesB = years.map((year) => getCurvePointAtAge(curveB, year)[metricView]);
+  const yearLabels = years.map((year) => `Yr ${year}`);
+
+  const yFormatter = metricView === 'drawdown' || metricView === 'nav'
+    ? (value) => `${(value * 100).toFixed(0)}%`
+    : (value) => `${value.toFixed(2)}x`;
+
+  const findYearAtDraw80 = (curve) => {
+    const row = curve.find((point) => point.drawdown >= 0.8);
+    return row ? row.year : curve[curve.length - 1].year;
+  };
+  const navDuration = (curve) => {
+    const peak = Math.max(...curve.map((point) => point.nav));
+    const threshold = peak * 0.5;
+    const hit = curve.find((point, idx) => idx > 0 && point.nav <= threshold);
+    return hit ? hit.year : curve[curve.length - 1].year;
+  };
+
+  return (
+    <section id="portfolio-strategies" className="content-section">
+      <h2>3. Strategy-Specific Curves</h2>
+      <p>
+        Not all strategies behave the same. Some draw quickly and recycle value faster; others
+        build NAV more slowly and keep it outstanding for longer.
+      </p>
+      <div className="interactive-block">
+        <div className="portfolio-select-grid">
+          <div className="environment-toolbar-group">
+            <span className="environment-toolbar-label">Strategy A</span>
+            <select className="environment-select" value={strategyA} onChange={(e) => setStrategyA(e.target.value)}>
+              {Object.entries(PORTFOLIO_STRATEGY_CURVES).map(([key, value]) => (
+                <option key={key} value={key}>{value.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="environment-toolbar-group">
+            <span className="environment-toolbar-label">Strategy B</span>
+            <select className="environment-select" value={strategyB} onChange={(e) => setStrategyB(e.target.value)}>
+              {Object.entries(PORTFOLIO_STRATEGY_CURVES).map(([key, value]) => (
+                <option key={key} value={key}>{value.label}</option>
+              ))}
+            </select>
+          </div>
+          <div className="environment-toolbar-group">
+            <span className="environment-toolbar-label">Metric</span>
+            <ToggleSwitch
+              options={[
+                { label: 'Drawdown %', value: 'drawdown' },
+                { label: 'NAV %', value: 'nav' },
+                { label: 'TVPI', value: 'tvpi' }
+              ]}
+              value={metricView}
+              onChange={setMetricView}
+              accent="#1B2A4A"
+            />
+          </div>
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard
+            label={`${PORTFOLIO_STRATEGY_CURVES[strategyA].label}: 80% Draw`}
+            value={`Yr ${findYearAtDraw80(curveA)}`}
+            subtext="Capital deployment pace"
+            accent={PORTFOLIO_STRATEGY_CURVES[strategyA].color}
+          />
+          <MetricCard
+            label={`${PORTFOLIO_STRATEGY_CURVES[strategyB].label}: 80% Draw`}
+            value={`Yr ${findYearAtDraw80(curveB)}`}
+            subtext="Capital deployment pace"
+            accent={PORTFOLIO_STRATEGY_CURVES[strategyB].color}
+          />
+          <MetricCard
+            label="Approx NAV Half-Life"
+            value={`${navDuration(curveA)}y / ${navDuration(curveB)}y`}
+            subtext="Year when NAV falls below half of peak"
+            accent="#1B2A4A"
+          />
+        </div>
+
+        <ComparisonChart
+          seriesA={seriesA}
+          seriesB={seriesB}
+          labelA={PORTFOLIO_STRATEGY_CURVES[strategyA].label}
+          labelB={PORTFOLIO_STRATEGY_CURVES[strategyB].label}
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={yFormatter}
+          colorA={PORTFOLIO_STRATEGY_CURVES[strategyA].color}
+          colorB={PORTFOLIO_STRATEGY_CURVES[strategyB].color}
+          height={260}
+        />
+      </div>
+    </section>
+  );
+};
+
+const PortfolioTargetingSection = () => {
+  const [planAssetsB, setPlanAssetsB] = useState(12);
+  const [targetPct, setTargetPct] = useState(0.12);
+  const [bandWidth, setBandWidth] = useState(0.015);
+  const [denominatorGrowth, setDenominatorGrowth] = useState(0.045);
+  const [existingNavB, setExistingNavB] = useState(1.0);
+  const [existingAge, setExistingAge] = useState(6);
+  const [annualCommitmentM, setAnnualCommitmentM] = useState(260);
+  const [commitGrowth, setCommitGrowth] = useState(0.03);
+  const [planningYears, setPlanningYears] = useState(12);
+
+  const annualCurve = useMemo(() => buildAnnualGrossCurve(12, 5, 2.5), []);
+  const projection = useMemo(() => {
+    const rows = [];
+    const existingStartPoint = getCurvePointAtAge(annualCurve, existingAge);
+    const existingStartNav = Math.max(1e-9, existingStartPoint.nav);
+
+    for (let year = 0; year <= planningYears; year++) {
+      const assetsB = planAssetsB * Math.pow(1 + denominatorGrowth, year);
+      const existingPoint = getCurvePointAtAge(annualCurve, existingAge + year);
+      const existingRunoffNavB = existingNavB * (existingPoint.nav / existingStartNav);
+
+      let newBuildNavB = 0;
+      for (let vintage = 0; vintage <= year; vintage++) {
+        const commitB = (annualCommitmentM / 1000) * Math.pow(1 + commitGrowth, vintage);
+        const age = year - vintage;
+        const point = getCurvePointAtAge(annualCurve, age);
+        newBuildNavB += commitB * point.nav;
+      }
+
+      const totalNavB = existingRunoffNavB + newBuildNavB;
+      const exposure = assetsB > 0 ? totalNavB / assetsB : 0;
+      rows.push({
+        year,
+        assetsB,
+        existingRunoffNavB,
+        newBuildNavB,
+        totalNavB,
+        exposure
+      });
+    }
+
+    const inBandYears = rows.filter((row) => row.exposure >= targetPct - bandWidth && row.exposure <= targetPct + bandWidth).length;
+    const year5Exposure = rows[Math.min(5, rows.length - 1)]?.exposure || 0;
+    const suggestedCommitmentM = year5Exposure > 1e-6
+      ? annualCommitmentM * (targetPct / year5Exposure)
+      : annualCommitmentM;
+
+    return { rows, inBandYears, year5Exposure, suggestedCommitmentM };
+  }, [
+    annualCurve,
+    planAssetsB,
+    denominatorGrowth,
+    existingNavB,
+    existingAge,
+    annualCommitmentM,
+    commitGrowth,
+    planningYears,
+    targetPct,
+    bandWidth
+  ]);
+
+  const yearLabels = projection.rows.map((row) => `Yr ${row.year}`);
+  const exposurePctSeries = projection.rows.map((row) => row.exposure * 100);
+  const targetSeries = projection.rows.map(() => targetPct * 100);
+  const runoffSeries = projection.rows.map((row) => row.existingRunoffNavB);
+  const buildSeries = projection.rows.map((row) => row.newBuildNavB);
+  const currentExposure = projection.rows[0]?.exposure || 0;
+
+  return (
+    <section id="portfolio-targeting" className="content-section">
+      <h2>4. Target Exposure Planning for a Pension Plan</h2>
+      <p>
+        Hitting a target PE allocation is dynamic. Existing NAV runs off, plan assets (the denominator)
+        change over time, and commitment pacing must adapt as both move.
+      </p>
+      <div className="interactive-block">
+        <div className="sliders-grid">
+          <Slider label="Plan Assets Today" value={planAssetsB} min={5} max={60} step={0.5} format={(v) => `${formatCurrency(v * 1e9, 0)}`} onChange={setPlanAssetsB} accent="#1B2A4A" />
+          <Slider label="Target PE Exposure" value={targetPct} min={0.05} max={0.2} step={0.005} format={(v) => formatPercent(v, 1)} onChange={setTargetPct} accent="#2D6B4F" />
+          <Slider label="Target Band Width (+/-)" value={bandWidth} min={0.005} max={0.03} step={0.0025} format={(v) => formatPercent(v, 2)} onChange={setBandWidth} accent="#9A9690" />
+          <Slider label="Denominator Growth" value={denominatorGrowth} min={0} max={0.08} step={0.0025} format={(v) => formatPercent(v, 1)} onChange={setDenominatorGrowth} accent="#C9A84C" />
+          <Slider label="Existing Portfolio NAV" value={existingNavB} min={0.25} max={3.5} step={0.05} format={(v) => formatCurrency(v * 1e9, 0)} onChange={setExistingNavB} accent="#1B2A4A" />
+          <Slider label="Existing Portfolio Avg Age" value={existingAge} min={1} max={11} step={1} format={(v) => `Year ${Math.round(v)}`} onChange={(v) => setExistingAge(Math.round(v))} accent="#B5473A" />
+          <Slider label="Annual New Commitments" value={annualCommitmentM} min={75} max={900} step={5} format={(v) => formatCurrency(v * 1e6, 0)} onChange={setAnnualCommitmentM} accent="#1B2A4A" />
+          <Slider label="Commitment Growth" value={commitGrowth} min={-0.03} max={0.08} step={0.0025} format={(v) => formatPercent(v, 1)} onChange={setCommitGrowth} accent="#2D6B4F" />
+          <Slider label="Planning Horizon" value={planningYears} min={6} max={18} step={1} format={(v) => `${Math.round(v)} years`} onChange={(v) => setPlanningYears(Math.round(v))} accent="#9A9690" />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard label="Current Exposure" value={formatPercent(currentExposure, 1)} subtext="Year 0 NAV / assets" accent="#1B2A4A" />
+          <MetricCard label="Year 5 Projected Exposure" value={formatPercent(projection.year5Exposure, 1)} subtext={`Target ${formatPercent(targetPct, 1)}`} accent="#2D6B4F" />
+          <MetricCard label="Implied Annual Commitments" value={formatCurrency(projection.suggestedCommitmentM * 1e6, 0)} subtext="Approx commitment to align by year 5" accent="#B5473A" />
+        </div>
+
+        <p className="portfolio-inline-note">
+          Exposure-in-band years in current run: <strong>{projection.inBandYears}</strong> of <strong>{projection.rows.length}</strong>
+        </p>
+
+        <h3 className="chart-title">Projected PE Exposure vs Target</h3>
+        <ComparisonChart
+          seriesA={exposurePctSeries}
+          seriesB={targetSeries}
+          labelA="Projected PE Exposure"
+          labelB="Target Exposure"
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={(value) => `${value.toFixed(1)}%`}
+          colorA="#1B2A4A"
+          colorB="#2D6B4F"
+          height={260}
+        />
+
+        <h3 className="chart-title">Existing Portfolio Runoff vs New-Build NAV</h3>
+        <ComparisonChart
+          seriesA={runoffSeries}
+          seriesB={buildSeries}
+          labelA="Existing Portfolio NAV"
+          labelB="New Commitments NAV"
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={(value) => formatCurrency(value * 1e9, 0)}
+          colorA="#9A9690"
+          colorB="#1B2A4A"
+          height={250}
+        />
+      </div>
+    </section>
+  );
+};
+
+const PortfolioTypesSection = () => {
+  const [secondaryPct, setSecondaryPct] = useState(0.2);
+  const [directPct, setDirectPct] = useState(0.1);
+  const [annualCommitmentM, setAnnualCommitmentM] = useState(200);
+
+  const setSecondarySafe = (value) => {
+    const bounded = Math.min(0.75, Math.max(0, value));
+    const maxSecondary = Math.max(0, 0.9 - directPct);
+    setSecondaryPct(Math.min(bounded, maxSecondary));
+  };
+  const setDirectSafe = (value) => {
+    const bounded = Math.min(0.75, Math.max(0, value));
+    const maxDirect = Math.max(0, 0.9 - secondaryPct);
+    setDirectPct(Math.min(bounded, maxDirect));
+  };
+
+  const primaryPct = Math.max(0, 1 - secondaryPct - directPct);
+  const horizonYears = 12;
+  const years = Array.from({ length: horizonYears + 1 }, (_, i) => i);
+
+  const primaryCurve = useMemo(() => buildAnnualGrossCurve(
+    PORTFOLIO_STRATEGY_CURVES.buyout.fundLife,
+    PORTFOLIO_STRATEGY_CURVES.buyout.investmentPeriod,
+    PORTFOLIO_STRATEGY_CURVES.buyout.grossMultiple
+  ), []);
+  const secondaryCurve = useMemo(() => buildAnnualGrossCurve(
+    PORTFOLIO_STRATEGY_CURVES.secondary.fundLife,
+    PORTFOLIO_STRATEGY_CURVES.secondary.investmentPeriod,
+    PORTFOLIO_STRATEGY_CURVES.secondary.grossMultiple
+  ), []);
+  const directCurve = useMemo(() => buildAnnualGrossCurve(
+    PORTFOLIO_STRATEGY_CURVES.direct.fundLife,
+    PORTFOLIO_STRATEGY_CURVES.direct.investmentPeriod,
+    PORTFOLIO_STRATEGY_CURVES.direct.grossMultiple
+  ), []);
+
+  const mixSeries = useMemo(() => {
+    const called = [];
+    const nav = [];
+    const allPrimaryNav = [];
+    years.forEach((year) => {
+      const p = getCurvePointAtAge(primaryCurve, year);
+      const s = getCurvePointAtAge(secondaryCurve, year);
+      const d = getCurvePointAtAge(directCurve, year);
+      called.push(primaryPct * p.drawdown + secondaryPct * s.drawdown + directPct * d.drawdown);
+      nav.push(primaryPct * p.nav + secondaryPct * s.nav + directPct * d.nav);
+      allPrimaryNav.push(p.nav);
+    });
+    return { called, nav, allPrimaryNav };
+  }, [years, primaryCurve, secondaryCurve, directCurve, primaryPct, secondaryPct, directPct]);
+
+  const year1CallM = mixSeries.called[1] * annualCommitmentM;
+  const year1NavM = mixSeries.nav[1] * annualCommitmentM;
+  const residualYear10M = mixSeries.nav[10] * annualCommitmentM;
+
+  return (
+    <section id="portfolio-types" className="content-section">
+      <h2>5. Investment Type Mix: Primaries, Secondaries, Direct Equity</h2>
+      <p>
+        Different investment types change both deployment speed and NAV duration. Secondaries and
+        direct equity can put capital to work faster, but they typically season faster too.
+      </p>
+      <div className="interactive-block">
+        <div className="sliders-grid">
+          <Slider label="Secondary Allocation" value={secondaryPct} min={0} max={0.75} step={0.01} format={(v) => formatPercent(v, 0)} onChange={setSecondarySafe} accent="#A8892E" />
+          <Slider label="Direct Equity Allocation" value={directPct} min={0} max={0.75} step={0.01} format={(v) => formatPercent(v, 0)} onChange={setDirectSafe} accent="#B5473A" />
+          <Slider label="Illustrative Annual Commitment" value={annualCommitmentM} min={50} max={500} step={5} format={(v) => formatCurrency(v * 1e6, 0)} onChange={setAnnualCommitmentM} accent="#1B2A4A" />
+        </div>
+
+        <div className="portfolio-mix-chips">
+          <span className="portfolio-mix-chip primary">Primary {formatPercent(primaryPct, 0)}</span>
+          <span className="portfolio-mix-chip secondary">Secondary {formatPercent(secondaryPct, 0)}</span>
+          <span className="portfolio-mix-chip direct">Direct {formatPercent(directPct, 0)}</span>
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard label="Year 1 Called Capital" value={formatCurrency(year1CallM * 1e6, 0)} subtext="Faster with secondary/direct mix" accent="#1B2A4A" />
+          <MetricCard label="Year 1 NAV" value={formatCurrency(year1NavM * 1e6, 0)} subtext="More immediate exposure" accent="#2D6B4F" />
+          <MetricCard label="Year 10 Residual NAV" value={formatCurrency(residualYear10M * 1e6, 0)} subtext="Typically shorter duration with faster-turn assets" accent="#B5473A" />
+        </div>
+
+        <h3 className="chart-title">Blended Mix: Drawdown Speed vs NAV</h3>
+        <ComparisonChart
+          seriesA={mixSeries.called}
+          seriesB={mixSeries.nav}
+          labelA="Cumulative Drawdown %"
+          labelB="NAV % of Annual Commitment"
+          xLabels={years.map((year) => `Yr ${year}`)}
+          xTickStep={2}
+          yFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+          colorA="#1B2A4A"
+          colorB="#2D6B4F"
+          height={250}
+        />
+
+        <h3 className="chart-title">Blended NAV vs All-Primary NAV</h3>
+        <ComparisonChart
+          seriesA={mixSeries.nav}
+          seriesB={mixSeries.allPrimaryNav}
+          labelA="Blended Mix NAV"
+          labelB="All-Primary NAV"
+          xLabels={years.map((year) => `Yr ${year}`)}
+          xTickStep={2}
+          yFormatter={(value) => `${(value * 100).toFixed(0)}%`}
+          colorA="#1B2A4A"
+          colorB="#9A9690"
+          height={250}
+        />
+      </div>
+    </section>
+  );
+};
+
+const PortfolioRiffsSection = () => (
+  <section id="portfolio-riffs" className="content-section">
+    <h2>Riffs: What Else Matters in Real Programs</h2>
+    <p>
+      The mechanics above are the base layer. In actual portfolio construction, pacing policy and
+      governance determine whether target exposure is resilient through market cycles.
+    </p>
+
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Commitment Policy Bands</h3>
+        <p>Most programs benefit from a rules-based commitment band tied to funded status and denominator volatility.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Liquidity Shock Protocol</h3>
+        <p>Predefine actions for a denominator shock: pacing cut, strategy rotation, secondaries, or temporary holdback.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Vintage Diversification</h3>
+        <p>Vintage balance is often as important as manager selection for keeping NAV and distributions stable.</p>
+      </div>
+    </div>
+
+    <WhatWeDidntCover
+      items={[
+        'Program-level leverage or NAV credit facilities and their effect on pacing flexibility.',
+        'Currency effects for global portfolios and how FX can distort denominator-based exposure targets.',
+        'How manager concentration limits should differ by strategy maturity and secondary liquidity depth.',
+        'Operational implementation: staffing model, pacing committee cadence, and live commitment approval workflows.'
+      ]}
+    />
+  </section>
+);
+
 // ============================================================================
 // MAIN APP
 // ============================================================================
@@ -5188,13 +6653,23 @@ export default function App() {
   const [activePage, setActivePage] = useState(() => {
     if (typeof window === 'undefined') return 'economics';
     const hash = window.location.hash.replace('#', '').toLowerCase();
+    if (hash.startsWith('portfolio') || PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash)) {
+      return 'portfolio';
+    }
+    if (hash.startsWith('environment') || ENVIRONMENT_SECTION_LINKS.some((section) => section.id === hash)) {
+      return 'environment';
+    }
     return hash.startsWith('liquidity') ? 'liquidity' : 'economics';
   });
 
   useEffect(() => {
     const syncPageFromHash = () => {
       const hash = window.location.hash.replace('#', '').toLowerCase();
-      if (LIQUIDITY_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('liquidity')) {
+      if (PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('portfolio')) {
+        setActivePage('portfolio');
+      } else if (ENVIRONMENT_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('environment')) {
+        setActivePage('environment');
+      } else if (LIQUIDITY_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('liquidity')) {
         setActivePage('liquidity');
       } else {
         setActivePage('economics');
@@ -5207,14 +6682,32 @@ export default function App() {
   }, []);
 
   const navigateToPage = (pageKey) => {
-    const targetPage = pageKey === 'liquidity' ? 'liquidity' : 'economics';
+    const targetPage = pageKey === 'liquidity'
+      ? 'liquidity'
+      : pageKey === 'portfolio'
+        ? 'portfolio'
+      : pageKey === 'environment'
+        ? 'environment'
+        : 'economics';
     setActivePage(targetPage);
-    const firstSectionId = targetPage === 'liquidity' ? LIQUIDITY_SECTION_LINKS[0].id : SECTION_LINKS[0].id;
+    const firstSectionId = targetPage === 'liquidity'
+      ? LIQUIDITY_SECTION_LINKS[0].id
+      : targetPage === 'portfolio'
+        ? PORTFOLIO_SECTION_LINKS[0].id
+      : targetPage === 'environment'
+        ? ENVIRONMENT_SECTION_LINKS[0].id
+        : SECTION_LINKS[0].id;
     window.location.hash = firstSectionId;
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const activeSections = activePage === 'liquidity' ? LIQUIDITY_SECTION_LINKS : SECTION_LINKS;
+  const activeSections = activePage === 'liquidity'
+    ? LIQUIDITY_SECTION_LINKS
+    : activePage === 'portfolio'
+      ? PORTFOLIO_SECTION_LINKS
+    : activePage === 'environment'
+      ? ENVIRONMENT_SECTION_LINKS
+      : SECTION_LINKS;
 
   return (
     <div className={`pe-fees-app ${compactControls ? 'compact-controls' : ''}`}>
@@ -5941,6 +7434,13 @@ export default function App() {
             linear-gradient(180deg, #ffffff 0%, #F8FAFD 62%, #F3F7FB 100%);
         }
 
+        .environment-hero {
+          background:
+            radial-gradient(circle at 12% 10%, rgba(1, 38, 70, 0.28), transparent 42%),
+            radial-gradient(circle at 88% 22%, rgba(0, 136, 204, 0.16), transparent 34%),
+            linear-gradient(180deg, #F3F8FF 0%, #EAF2FB 62%, #E8EEF7 100%);
+        }
+
         /* Content Sections */
         .content-section {
           max-width: 900px;
@@ -6080,6 +7580,422 @@ export default function App() {
           font-size: 14px;
           color: #5B657A;
           line-height: 1.55;
+        }
+
+        .environment-explorer-block {
+          padding-top: 14px;
+        }
+
+        .environment-toolbar {
+          display: grid;
+          grid-template-columns: minmax(160px, 220px) minmax(320px, 1fr) minmax(120px, 160px);
+          gap: 10px;
+          margin-bottom: 10px;
+          align-items: end;
+        }
+
+        .environment-toolbar-group {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+          min-width: 0;
+        }
+
+        .environment-toolbar-label {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #6B7488;
+        }
+
+        .environment-select {
+          border: 1px solid #CFD7E5;
+          border-radius: 8px;
+          padding: 8px 10px;
+          font-size: 13px;
+          color: #1B2A4A;
+          background: #FFFFFF;
+        }
+
+        .environment-page-controls {
+          display: grid;
+          grid-template-columns: auto minmax(160px, 1fr) auto;
+          gap: 10px;
+          align-items: center;
+        }
+
+        .environment-page-btn {
+          border: 1px solid #CFD7E5;
+          border-radius: 8px;
+          background: #ffffff;
+          color: #1B2A4A;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.2px;
+          padding: 7px 10px;
+          cursor: pointer;
+        }
+
+        .environment-page-btn:hover {
+          background: #F4F8FE;
+          border-color: #AEBBD2;
+        }
+
+        .environment-page-slider {
+          width: 100%;
+          accent-color: #1B2A4A;
+        }
+
+        .environment-page-meta {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+          font-size: 13px;
+          color: #4F5B72;
+          flex-wrap: wrap;
+        }
+
+        .environment-open-link {
+          color: #1B2A4A;
+          text-decoration: none;
+          border-bottom: 1px solid rgba(27, 42, 74, 0.4);
+          font-weight: 500;
+        }
+
+        .environment-open-link:hover {
+          color: #A8892E;
+          border-bottom-color: rgba(168, 137, 46, 0.6);
+        }
+
+        .environment-frame-wrap {
+          border: 1px solid #D7E0EE;
+          border-radius: 10px;
+          overflow: hidden;
+          background: #F6F8FC;
+          min-height: 560px;
+        }
+
+        .environment-pdf-frame {
+          width: 100%;
+          height: 70vh;
+          min-height: 560px;
+          border: 0;
+          background: #ffffff;
+        }
+
+        .environment-theme-pills {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin-bottom: 14px;
+        }
+
+        .environment-theme-pill {
+          border: 1px solid #CCD8EA;
+          background: #FFFFFF;
+          color: #2E3F5E;
+          border-radius: 999px;
+          padding: 8px 12px;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.3px;
+          cursor: pointer;
+        }
+
+        .environment-theme-pill.active,
+        .environment-theme-pill:hover {
+          border-color: #1B2A4A;
+          color: #1B2A4A;
+          background: #F1F5FC;
+        }
+
+        .environment-theme-detail {
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          background: #FBFCFF;
+          padding: 14px;
+        }
+
+        .environment-theme-pages {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #6B7488;
+          margin-bottom: 4px;
+        }
+
+        .environment-theme-detail p {
+          margin: 0;
+          font-size: 14px;
+          line-height: 1.6;
+          color: #4F5B72;
+        }
+
+        .portfolio-hero {
+          background:
+            radial-gradient(circle at 10% 10%, rgba(27, 42, 74, 0.22), transparent 40%),
+            radial-gradient(circle at 88% 18%, rgba(201, 168, 76, 0.2), transparent 36%),
+            linear-gradient(180deg, #F8FBFF 0%, #F0F5FC 62%, #EDF2F8 100%);
+        }
+
+        .portfolio-select-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+          margin-bottom: 10px;
+          align-items: end;
+        }
+
+        .portfolio-inline-note {
+          margin: 6px 0 14px;
+          font-size: 13px;
+          color: #4F5B72;
+        }
+
+        .portfolio-mix-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          margin: -2px 0 12px;
+        }
+
+        .portfolio-mix-chip {
+          display: inline-flex;
+          align-items: center;
+          border-radius: 999px;
+          padding: 4px 10px;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          border: 1px solid #D3DCE9;
+          background: #F8FAFD;
+          color: #2E3F5E;
+        }
+
+        .portfolio-mix-chip.primary {
+          border-color: rgba(27, 42, 74, 0.3);
+          color: #1B2A4A;
+        }
+
+        .portfolio-mix-chip.secondary {
+          border-color: rgba(168, 137, 46, 0.35);
+          color: #A37D23;
+        }
+
+        .portfolio-mix-chip.direct {
+          border-color: rgba(181, 71, 58, 0.35);
+          color: #B5473A;
+        }
+
+        .environment-theme-pills.compact {
+          margin-bottom: 0;
+        }
+
+        .environment-kpi-inline {
+          border: 1px solid #D3DDEB;
+          border-radius: 8px;
+          padding: 8px 10px;
+          font-size: 13px;
+          color: #1B2A4A;
+          background: #F8FBFF;
+          font-weight: 500;
+        }
+
+        .environment-delta-grid {
+          display: grid;
+          gap: 10px;
+          margin-top: 6px;
+        }
+
+        .environment-delta-card {
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          background: #FBFCFF;
+          padding: 10px 12px;
+        }
+
+        .environment-delta-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 8px;
+          margin-bottom: 8px;
+          font-size: 13px;
+          color: #1B2A4A;
+          font-weight: 500;
+        }
+
+        .environment-delta-pages {
+          font-size: 10px;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          color: #6B7488;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+
+        .environment-delta-values {
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          align-items: center;
+          gap: 8px;
+          font-family: 'SF Mono', 'Monaco', monospace;
+          font-size: 13px;
+          color: #44516B;
+          margin-bottom: 8px;
+        }
+
+        .environment-delta-values span:first-child {
+          text-align: left;
+        }
+
+        .environment-delta-values span:last-child {
+          text-align: right;
+        }
+
+        .environment-delta-change {
+          border-radius: 999px;
+          padding: 2px 8px;
+          font-weight: 600;
+          font-size: 12px;
+          white-space: nowrap;
+        }
+
+        .environment-delta-change.good {
+          color: #1F6A4D;
+          background: rgba(45, 107, 79, 0.13);
+        }
+
+        .environment-delta-change.bad {
+          color: #B5473A;
+          background: rgba(181, 71, 58, 0.13);
+        }
+
+        .environment-delta-bar-track {
+          width: 100%;
+          height: 8px;
+          border-radius: 999px;
+          background: #E6EDF8;
+          overflow: hidden;
+        }
+
+        .environment-delta-bar {
+          height: 100%;
+          border-radius: 999px;
+        }
+
+        .environment-delta-bar.good {
+          background: linear-gradient(90deg, #2D6B4F, #4C9B74);
+        }
+
+        .environment-delta-bar.bad {
+          background: linear-gradient(90deg, #B5473A, #DA675A);
+        }
+
+        .environment-conversion-top {
+          display: grid;
+          grid-template-columns: minmax(220px, 1fr) auto;
+          gap: 12px;
+          align-items: end;
+          margin-bottom: 12px;
+        }
+
+        .environment-conversion-progress {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .environment-conversion-label {
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #6B7488;
+        }
+
+        .environment-conversion-track {
+          width: 100%;
+          height: 8px;
+          background: #E6EDF8;
+          border-radius: 999px;
+          overflow: hidden;
+        }
+
+        .environment-conversion-fill {
+          height: 100%;
+          background: linear-gradient(90deg, #1B2A4A, #2D6B4F);
+        }
+
+        .environment-conversion-meta {
+          font-size: 12px;
+          color: #4F5B72;
+        }
+
+        .environment-table-wrap {
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          overflow-x: auto;
+          background: #FBFCFF;
+        }
+
+        .environment-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 13px;
+          min-width: 640px;
+        }
+
+        .environment-table th,
+        .environment-table td {
+          text-align: left;
+          padding: 10px 12px;
+          border-bottom: 1px solid #E6ECF5;
+          color: #465168;
+        }
+
+        .environment-table th {
+          font-size: 10px;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          color: #6B7488;
+          font-weight: 600;
+          background: #F3F6FB;
+          white-space: nowrap;
+        }
+
+        .environment-status {
+          display: inline-block;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          border-radius: 999px;
+          padding: 2px 8px;
+          border: 1px solid transparent;
+        }
+
+        .environment-status.built {
+          color: #1F6A4D;
+          background: rgba(45, 107, 79, 0.12);
+          border-color: rgba(45, 107, 79, 0.24);
+        }
+
+        .environment-status.next {
+          color: #1B2A4A;
+          background: rgba(27, 42, 74, 0.1);
+          border-color: rgba(27, 42, 74, 0.22);
+        }
+
+        .environment-status.planned {
+          color: #A37D23;
+          background: rgba(201, 168, 76, 0.16);
+          border-color: rgba(201, 168, 76, 0.3);
         }
 
         .bridge-note {
@@ -7480,6 +9396,27 @@ export default function App() {
             grid-template-columns: 1fr;
           }
 
+          .environment-toolbar {
+            grid-template-columns: 1fr;
+          }
+
+          .environment-page-controls {
+            grid-template-columns: auto 1fr auto;
+          }
+
+          .environment-pdf-frame {
+            min-height: 460px;
+            height: 64vh;
+          }
+
+          .environment-conversion-top {
+            grid-template-columns: 1fr;
+          }
+
+          .portfolio-select-grid {
+            grid-template-columns: 1fr;
+          }
+
           .sliders-grid.three-up {
             grid-template-columns: repeat(2, minmax(140px, 1fr));
           }
@@ -7505,6 +9442,29 @@ export default function App() {
           .sliders-grid.two-up,
           .sliders-grid.three-up {
             grid-template-columns: 1fr;
+          }
+
+          .environment-frame-wrap {
+            min-height: 420px;
+          }
+
+          .environment-pdf-frame {
+            min-height: 420px;
+            height: 60vh;
+          }
+
+          .environment-delta-values {
+            grid-template-columns: 1fr;
+            gap: 4px;
+          }
+
+          .environment-delta-values span,
+          .environment-delta-values span:last-child {
+            text-align: left;
+          }
+
+          .portfolio-mix-chips {
+            gap: 6px;
           }
 
           .hero-graphboard {
@@ -7603,7 +9563,7 @@ export default function App() {
               />
               <ConclusionSection />
             </>
-          ) : (
+          ) : activePage === 'liquidity' ? (
             <>
               <LiquidityHeroSection />
               <LiquidityNormalCourseSection
@@ -7615,6 +9575,28 @@ export default function App() {
               />
               <LiquidityToolkitSection />
               <LiquidityToBeBuiltSection />
+            </>
+          ) : activePage === 'portfolio' ? (
+            <>
+              <PortfolioHeroSection />
+              <PortfolioSingleFundSection />
+              <PortfolioLayeringSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <PortfolioStrategyCurvesSection />
+              <PortfolioTargetingSection />
+              <PortfolioTypesSection />
+              <PortfolioRiffsSection />
+            </>
+          ) : (
+            <>
+              <EnvironmentHeroSection />
+              <EnvironmentExplorerSection />
+              <EnvironmentThemesSection />
+              <EnvironmentDeltaLabSection />
+              <EnvironmentConversionSection />
+              <EnvironmentBuildPlanSection />
             </>
           )}
         </main>
