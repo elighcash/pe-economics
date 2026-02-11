@@ -123,6 +123,13 @@ const SECTION_LINKS = [
   { id: 'conclusion', label: 'Conclusion' }
 ];
 
+const LIQUIDITY_SECTION_LINKS = [
+  { id: 'liquidity-hero', label: 'Liquidity 101' },
+  { id: 'liquidity-normal-course', label: 'Normal-Course Exits' },
+  { id: 'liquidity-secondaries', label: 'Secondaries' },
+  { id: 'liquidity-toolkit', label: 'Liquidity Toolkit' }
+];
+
 const SideNav = ({ sections }) => {
   const [activeId, setActiveId] = useState(sections[0]?.id || '');
 
@@ -947,11 +954,16 @@ const LocTimingColumnChart = ({
 // SECTION COMPONENTS
 // ============================================================================
 
-const Header = ({ compactControls, onToggleCompactControls }) => {
+const Header = ({ compactControls, onToggleCompactControls, activePage, onNavigatePage }) => {
   const [menuOpen, setMenuOpen] = useState(false);
 
   const handleToggleCompact = () => {
     onToggleCompactControls();
+    setMenuOpen(false);
+  };
+
+  const handleNavigate = (pageKey) => {
+    onNavigatePage(pageKey);
     setMenuOpen(false);
   };
 
@@ -981,6 +993,21 @@ const Header = ({ compactControls, onToggleCompactControls }) => {
             </button>
             {menuOpen && (
               <div className="header-menu-panel">
+                <button
+                  type="button"
+                  className={`header-menu-item ${activePage === 'economics' ? 'active' : ''}`}
+                  onClick={() => handleNavigate('economics')}
+                >
+                  Private Markets Economics
+                </button>
+                <button
+                  type="button"
+                  className={`header-menu-item ${activePage === 'liquidity' ? 'active' : ''}`}
+                  onClick={() => handleNavigate('liquidity')}
+                >
+                  Liquidity Management
+                </button>
+                <div className="header-menu-divider" />
                 <button type="button" className="header-menu-item" onClick={handleToggleCompact}>
                   Compact Controls: {compactControls ? 'On' : 'Off'}
                 </button>
@@ -4799,6 +4826,322 @@ const ConclusionSection = () => (
   </section>
 );
 
+const LiquidityHeroSection = () => (
+  <section id="liquidity-hero" className="hero-section liquidity-hero">
+    <div className="pathway-badge">Pathway Capital Education</div>
+    <h1>Liquidity Management in Private Markets</h1>
+    <p className="hero-subtitle">Two liquidity engines drive outcomes: normal-course exits and secondary market execution.</p>
+    <p className="hero-purpose-note">
+      This page is the new liquidity module scaffold. It separates operating cash return
+      dynamics from secondary sale decisions so teams can discuss both with the same vocabulary.
+    </p>
+    <div className="hero-scroll-note">Scroll to compare cash timing vs value trade-offs</div>
+  </section>
+);
+
+const LiquidityNormalCourseSection = ({ globalGrossMultiple, onGrossMultipleChange }) => {
+  const DEFAULT_REALIZATION_PACE = 1.0;
+  const [realizationPace, setRealizationPace] = useState(DEFAULT_REALIZATION_PACE);
+  const grossMultiple = globalGrossMultiple ?? BASELINE_GROSS_TVPI;
+  const commitment = BASELINE_MODEL_INPUTS.fundSize * 1e6;
+  const fundLife = BASELINE_MODEL_INPUTS.fundLife;
+  const yearLabels = Array.from({ length: fundLife + 1 }, (_, i) => `Yr ${i}`);
+
+  const model = useMemo(() => {
+    return buildQuarterlySchedule({
+      fundSizeM: commitment,
+      fundLife: BASELINE_MODEL_INPUTS.fundLife,
+      investmentPeriod: BASELINE_MODEL_INPUTS.investmentPeriod,
+      grossMultiple,
+      mgmtFeeRate: BASELINE_MODEL_INPUTS.mgmtFeeRate,
+      expenseRate: BASELINE_MODEL_INPUTS.expenseRate,
+      carryRate: BASELINE_MODEL_INPUTS.carryRate,
+      hurdleRate: BASELINE_MODEL_INPUTS.hurdleRate,
+      deploymentRate: 1
+    });
+  }, [grossMultiple, commitment]);
+
+  const curveData = useMemo(() => {
+    const finalNetDist = model.schedule[model.schedule.length - 1]?.cumulativeNetDist || 0;
+    const startYear = 3;
+    const cumulativeFromPace = (year, pace) => {
+      if (year <= startYear) return 0;
+      const t = Math.max(0, Math.min(1, (year - startYear) / Math.max(1, fundLife - startYear)));
+      return finalNetDist * Math.pow(t, 1 / pace);
+    };
+
+    const baseSeries = yearLabels.map((_, year) => cumulativeFromPace(year, 1.0) / commitment);
+    const selectedSeries = yearLabels.map((_, year) => cumulativeFromPace(year, realizationPace) / commitment);
+
+    const year8 = Math.min(8, fundLife);
+    const dpiByYear8 = selectedSeries[year8] || 0;
+    const cashByYear8 = dpiByYear8 * commitment;
+
+    return { baseSeries, selectedSeries, dpiByYear8, cashByYear8 };
+  }, [model.schedule, commitment, fundLife, yearLabels, realizationPace]);
+
+  const resetSection = () => {
+    setRealizationPace(DEFAULT_REALIZATION_PACE);
+    if (onGrossMultipleChange) onGrossMultipleChange(BASELINE_GROSS_TVPI);
+  };
+
+  return (
+    <section id="liquidity-normal-course" className="content-section">
+      <h2>Normal-Course Liquidity (Exits Over Time)</h2>
+      <p>
+        The first liquidity engine is ordinary exits. Companies are sold, recapitalized,
+        or listed over time, and cash flows back through DPI. Faster realization usually
+        improves liquidity timing, but it can pressure price if exits are rushed.
+      </p>
+
+      <div className="interactive-block">
+        <div className="block-actions">
+          <ResetButton onClick={resetSection} />
+        </div>
+        <div className="sliders-grid two-up">
+          <Slider
+            label="Gross MOIC Assumption"
+            value={grossMultiple}
+            min={1.0}
+            max={3.5}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={onGrossMultipleChange || (() => {})}
+            accent="#1B2A4A"
+          />
+          <Slider
+            label="Realization Pace"
+            value={realizationPace}
+            min={0.7}
+            max={1.3}
+            step={0.01}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setRealizationPace}
+            accent="#2D6B4F"
+          />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard
+            label="Modeled Net TVPI"
+            value={`${model.totals.netMultiple.toFixed(2)}x`}
+            subtext="Economics held constant"
+            accent="#1B2A4A"
+          />
+          <MetricCard
+            label="Selected DPI by Year 8"
+            value={`${curveData.dpiByYear8.toFixed(2)}x`}
+            subtext="Timing view only"
+            accent="#2D6B4F"
+          />
+          <MetricCard
+            label="Cash Returned by Year 8"
+            value={formatCurrency(curveData.cashByYear8, 0)}
+            subtext={`On ${formatCurrency(commitment, 0)} commitment`}
+            accent="#2D6B4F"
+          />
+        </div>
+
+        <h3 className="chart-title">Cumulative DPI Timing Curve</h3>
+        <ComparisonChart
+          seriesA={curveData.baseSeries}
+          seriesB={curveData.selectedSeries}
+          labelA="Base realization pace"
+          labelB="Selected realization pace"
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={(v) => `${v.toFixed(2)}x`}
+          colorA="#1B2A4A"
+          colorB="#2D6B4F"
+          height={250}
+        />
+      </div>
+    </section>
+  );
+};
+
+const LiquiditySecondariesSection = ({ globalGrossMultiple }) => {
+  const [saleYear, setSaleYear] = useState(6);
+  const [saleShare, setSaleShare] = useState(0.25);
+  const [secondaryDiscount, setSecondaryDiscount] = useState(0.12);
+  const grossMultiple = globalGrossMultiple ?? BASELINE_GROSS_TVPI;
+  const commitment = BASELINE_MODEL_INPUTS.fundSize * 1e6;
+  const fundLife = BASELINE_MODEL_INPUTS.fundLife;
+  const yearLabels = Array.from({ length: fundLife + 1 }, (_, i) => `Yr ${i}`);
+
+  const model = useMemo(() => {
+    return buildQuarterlySchedule({
+      fundSizeM: commitment,
+      fundLife: BASELINE_MODEL_INPUTS.fundLife,
+      investmentPeriod: BASELINE_MODEL_INPUTS.investmentPeriod,
+      grossMultiple,
+      mgmtFeeRate: BASELINE_MODEL_INPUTS.mgmtFeeRate,
+      expenseRate: BASELINE_MODEL_INPUTS.expenseRate,
+      carryRate: BASELINE_MODEL_INPUTS.carryRate,
+      hurdleRate: BASELINE_MODEL_INPUTS.hurdleRate,
+      deploymentRate: 1
+    });
+  }, [grossMultiple, commitment]);
+
+  const secondaryData = useMemo(() => {
+    const annualCumulative = new Array(fundLife + 1).fill(0);
+    model.schedule.forEach((row) => {
+      annualCumulative[row.year] = Math.max(annualCumulative[row.year], row.cumulativeNetDist);
+    });
+    for (let y = 1; y <= fundLife; y++) {
+      annualCumulative[y] = Math.max(annualCumulative[y], annualCumulative[y - 1]);
+    }
+
+    const boundedSaleYear = Math.min(fundLife - 1, Math.max(3, saleYear));
+    const distAtSale = annualCumulative[boundedSaleYear] || 0;
+    const finalNatural = annualCumulative[fundLife] || 0;
+    const remainingAtSale = Math.max(0, finalNatural - distAtSale);
+    const soldAmount = remainingAtSale * saleShare;
+    const secondaryProceeds = soldAmount * (1 - secondaryDiscount);
+
+    const adjustedCumulative = annualCumulative.map((value, year) => {
+      if (year < boundedSaleYear) return value;
+      if (year === boundedSaleYear) return value + secondaryProceeds;
+      const postSaleNatural = Math.max(0, value - distAtSale);
+      return distAtSale + secondaryProceeds + postSaleNatural * (1 - saleShare);
+    });
+
+    const naturalSeries = annualCumulative.map((value) => value / commitment);
+    const adjustedSeries = adjustedCumulative.map((value) => value / commitment);
+    const tvpiCost = (annualCumulative[fundLife] - adjustedCumulative[fundLife]) / commitment;
+    const liquidityPulledForward = secondaryProceeds;
+
+    return {
+      naturalSeries,
+      adjustedSeries,
+      boundedSaleYear,
+      tvpiCost,
+      liquidityPulledForward
+    };
+  }, [commitment, fundLife, model.schedule, saleYear, saleShare, secondaryDiscount]);
+
+  const resetSection = () => {
+    setSaleYear(6);
+    setSaleShare(0.25);
+    setSecondaryDiscount(0.12);
+  };
+
+  return (
+    <section id="liquidity-secondaries" className="content-section">
+      <h2>Secondary Liquidity (Portfolio Sales)</h2>
+      <p>
+        The second liquidity engine is market-based: selling fund interests. This can
+        accelerate distributions to LPs, but it usually comes with a price concession.
+        The trade-off is timing versus terminal value.
+      </p>
+
+      <div className="interactive-block">
+        <div className="block-actions">
+          <ResetButton onClick={resetSection} />
+        </div>
+        <div className="sliders-grid three-up">
+          <Slider
+            label="Secondary Sale Year"
+            value={saleYear}
+            min={3}
+            max={10}
+            step={1}
+            format={(v) => `Yr ${Math.round(v)}`}
+            onChange={(v) => setSaleYear(Math.round(v))}
+            accent="#1B2A4A"
+          />
+          <Slider
+            label="Percent of Remaining NAV Sold"
+            value={saleShare}
+            min={0.1}
+            max={0.6}
+            step={0.01}
+            format={(v) => formatPercent(v, 0)}
+            onChange={setSaleShare}
+            accent="#B5473A"
+          />
+          <Slider
+            label="Secondary Discount"
+            value={secondaryDiscount}
+            min={0.03}
+            max={0.3}
+            step={0.005}
+            format={(v) => formatPercent(v, 1)}
+            onChange={setSecondaryDiscount}
+            accent="#C9A84C"
+          />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard
+            label="Liquidity Pulled Forward"
+            value={formatCurrency(secondaryData.liquidityPulledForward, 0)}
+            subtext={`Immediate cash in year ${secondaryData.boundedSaleYear}`}
+            accent="#2D6B4F"
+          />
+          <MetricCard
+            label="Final TVPI Impact"
+            value={`${secondaryData.tvpiCost.toFixed(2)}x`}
+            subtext="Discount cost to terminal value"
+            accent="#B5473A"
+          />
+          <MetricCard
+            label="Scenario Lens"
+            value={secondaryData.tvpiCost > 0 ? 'Timing > Value' : 'Value > Timing'}
+            subtext="Use when liquidity need is explicit"
+            accent="#1B2A4A"
+          />
+        </div>
+
+        <h3 className="chart-title">Natural DPI vs Secondary-Assisted DPI</h3>
+        <ComparisonChart
+          seriesA={secondaryData.naturalSeries}
+          seriesB={secondaryData.adjustedSeries}
+          labelA="Natural pace"
+          labelB="With secondary sale"
+          xLabels={yearLabels}
+          xTickStep={2}
+          yFormatter={(v) => `${v.toFixed(2)}x`}
+          marker={{
+            index: secondaryData.boundedSaleYear,
+            label: `Sale Yr ${secondaryData.boundedSaleYear}`,
+            color: '#C9A84C'
+          }}
+          colorA="#1B2A4A"
+          colorB="#B5473A"
+          height={250}
+        />
+      </div>
+    </section>
+  );
+};
+
+const LiquidityToolkitSection = () => (
+  <section id="liquidity-toolkit" className="content-section">
+    <h2>Liquidity Toolkit for LPs</h2>
+    <p>
+      In practice, most programs blend both engines: they underwrite normal-course exits
+      and keep secondaries as an active portfolio management tool for pacing, concentration,
+      and denominator management.
+    </p>
+
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Normal-Course Focus</h3>
+        <p>Manager selection, portfolio construction, and vintage diversification improve predictable distributions.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Secondary Focus</h3>
+        <p>Use secondaries when liquidity is needed, exposures are concentrated, or strategic rebalancing is required.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Program-Level View</h3>
+        <p>Model liquidity as a system-level decision: cash timing, pricing, and reinvestment capacity should be optimized together.</p>
+      </div>
+    </div>
+  </section>
+);
+
 // ============================================================================
 // MAIN APP
 // ============================================================================
@@ -4807,6 +5150,36 @@ export default function App() {
   const [globalGrossMultiple, setGlobalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
   const [globalDeploymentRate, setGlobalDeploymentRate] = useState(1.0);
   const [compactControls, setCompactControls] = useState(true);
+  const [activePage, setActivePage] = useState(() => {
+    if (typeof window === 'undefined') return 'economics';
+    const hash = window.location.hash.replace('#', '').toLowerCase();
+    return hash.startsWith('liquidity') ? 'liquidity' : 'economics';
+  });
+
+  useEffect(() => {
+    const syncPageFromHash = () => {
+      const hash = window.location.hash.replace('#', '').toLowerCase();
+      if (LIQUIDITY_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('liquidity')) {
+        setActivePage('liquidity');
+      } else {
+        setActivePage('economics');
+      }
+    };
+
+    syncPageFromHash();
+    window.addEventListener('hashchange', syncPageFromHash);
+    return () => window.removeEventListener('hashchange', syncPageFromHash);
+  }, []);
+
+  const navigateToPage = (pageKey) => {
+    const targetPage = pageKey === 'liquidity' ? 'liquidity' : 'economics';
+    setActivePage(targetPage);
+    const firstSectionId = targetPage === 'liquidity' ? LIQUIDITY_SECTION_LINKS[0].id : SECTION_LINKS[0].id;
+    window.location.hash = firstSectionId;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const activeSections = activePage === 'liquidity' ? LIQUIDITY_SECTION_LINKS : SECTION_LINKS;
 
   return (
     <div className={`pe-fees-app ${compactControls ? 'compact-controls' : ''}`}>
@@ -5064,6 +5437,17 @@ export default function App() {
 
         .header-menu-item:hover {
           background: #EEF3FB;
+        }
+
+        .header-menu-item.active {
+          background: #EEF3FB;
+          color: #10213F;
+        }
+
+        .header-menu-divider {
+          height: 1px;
+          margin: 6px 4px;
+          background: #DCE3EE;
         }
 
         @media (max-width: 980px) {
@@ -5515,6 +5899,13 @@ export default function App() {
           margin-bottom: 0;
         }
 
+        .liquidity-hero {
+          background:
+            radial-gradient(circle at 12% 8%, rgba(27, 42, 74, 0.16), transparent 40%),
+            radial-gradient(circle at 84% 24%, rgba(45, 107, 79, 0.18), transparent 36%),
+            linear-gradient(180deg, #ffffff 0%, #F8FAFD 62%, #F3F7FB 100%);
+        }
+
         /* Content Sections */
         .content-section {
           max-width: 900px;
@@ -5543,6 +5934,11 @@ export default function App() {
         .content-section p {
           margin-bottom: 14px;
           font-size: 16px;
+        }
+
+        .chart-title {
+          margin-top: 18px;
+          margin-bottom: 8px;
         }
 
         .source-sup {
@@ -5621,6 +6017,34 @@ export default function App() {
         .block-subtitle {
           font-size: 13px;
           color: #9A9690;
+        }
+
+        .liquidity-callout-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+          margin-top: 18px;
+        }
+
+        .liquidity-callout {
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          padding: 14px;
+          background: #FBFCFF;
+        }
+
+        .liquidity-callout h3 {
+          margin: 0 0 8px;
+          font-size: 16px;
+          color: #1B2A4A;
+          font-weight: 500;
+        }
+
+        .liquidity-callout p {
+          margin: 0;
+          font-size: 14px;
+          color: #5B657A;
+          line-height: 1.55;
         }
 
         .bridge-note {
@@ -5784,6 +6208,14 @@ export default function App() {
           grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
           gap: 16px;
           margin-bottom: 16px;
+        }
+
+        .sliders-grid.two-up {
+          grid-template-columns: repeat(2, minmax(180px, 1fr));
+        }
+
+        .sliders-grid.three-up {
+          grid-template-columns: repeat(3, minmax(160px, 1fr));
         }
 
         /* Global compact mode so users can see controls and outputs together */
@@ -7012,6 +7444,14 @@ export default function App() {
           .timing-layout {
             grid-template-columns: 1fr;
           }
+
+          .sliders-grid.three-up {
+            grid-template-columns: repeat(2, minmax(140px, 1fr));
+          }
+
+          .liquidity-callout-grid {
+            grid-template-columns: 1fr;
+          }
         }
 
         @media (max-width: 600px) {
@@ -7024,6 +7464,11 @@ export default function App() {
           }
 
           .management-fee-block .sliders-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .sliders-grid.two-up,
+          .sliders-grid.three-up {
             grid-template-columns: 1fr;
           }
 
@@ -7071,53 +7516,71 @@ export default function App() {
       <Header
         compactControls={compactControls}
         onToggleCompactControls={() => setCompactControls((prev) => !prev)}
+        activePage={activePage}
+        onNavigatePage={navigateToPage}
       />
       <div className="app-shell">
-        <SideNav sections={SECTION_LINKS} />
+        <SideNav sections={activeSections} />
         <main className="app-main">
-          <HeroSection />
-          <IntroSection
-            globalGrossMultiple={globalGrossMultiple}
-            onGrossMultipleChange={setGlobalGrossMultiple}
-          />
-          <ManagementFeeSection />
-          <ExpensesSection
-            globalGrossMultiple={globalGrossMultiple}
-            onGrossMultipleChange={setGlobalGrossMultiple}
-            globalDeploymentRate={globalDeploymentRate}
-            onDeploymentRateChange={setGlobalDeploymentRate}
-          />
-          <CarrySection
-            globalGrossMultiple={globalGrossMultiple}
-            onGrossMultipleChange={setGlobalGrossMultiple}
-          />
-          <WaterfallComparisonSection
-            globalGrossMultiple={globalGrossMultiple}
-            onGrossMultipleChange={setGlobalGrossMultiple}
-          />
-          <UnderinvestingSection
-            globalGrossMultiple={globalGrossMultiple}
-            onGrossMultipleChange={setGlobalGrossMultiple}
-            globalDeploymentRate={globalDeploymentRate}
-            onDeploymentRateChange={setGlobalDeploymentRate}
-          />
-          <FeeTradeoffSection
-            globalGrossMultiple={globalGrossMultiple}
-            onGrossMultipleChange={setGlobalGrossMultiple}
-          />
-          <QuarterlyScheduleSection
-            globalGrossMultiple={globalGrossMultiple}
-            onGrossMultipleChange={setGlobalGrossMultiple}
-            globalDeploymentRate={globalDeploymentRate}
-            onDeploymentRateChange={setGlobalDeploymentRate}
-          />
-          <MasterDashboard
-            asSynthesis={true}
-            sectionId="synthesis"
-            globalGrossMultiple={globalGrossMultiple}
-            onGrossMultipleChange={setGlobalGrossMultiple}
-          />
-          <ConclusionSection />
+          {activePage === 'economics' ? (
+            <>
+              <HeroSection />
+              <IntroSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <ManagementFeeSection />
+              <ExpensesSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+                globalDeploymentRate={globalDeploymentRate}
+                onDeploymentRateChange={setGlobalDeploymentRate}
+              />
+              <CarrySection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <WaterfallComparisonSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <UnderinvestingSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+                globalDeploymentRate={globalDeploymentRate}
+                onDeploymentRateChange={setGlobalDeploymentRate}
+              />
+              <FeeTradeoffSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <QuarterlyScheduleSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+                globalDeploymentRate={globalDeploymentRate}
+                onDeploymentRateChange={setGlobalDeploymentRate}
+              />
+              <MasterDashboard
+                asSynthesis={true}
+                sectionId="synthesis"
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <ConclusionSection />
+            </>
+          ) : (
+            <>
+              <LiquidityHeroSection />
+              <LiquidityNormalCourseSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <LiquiditySecondariesSection
+                globalGrossMultiple={globalGrossMultiple}
+              />
+              <LiquidityToolkitSection />
+            </>
+          )}
         </main>
       </div>
     </div>
