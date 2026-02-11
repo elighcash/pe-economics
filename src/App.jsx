@@ -5950,129 +5950,329 @@ const PortfolioHeroSection = () => (
 );
 
 const PortfolioSingleFundSection = () => {
+  const commitmentM = 100;
+  const grossMultiple = 2.5;
+  const fundLife = 12;
+  const investmentPeriod = 5;
   const DEFAULTS = {
-    commitmentM: 100,
-    grossMultiple: 2.5,
-    fundLife: 12,
-    investmentPeriod: 5
+    selectedYear: 0
   };
-  const [commitmentM, setCommitmentM] = useState(DEFAULTS.commitmentM);
-  const [grossMultiple, setGrossMultiple] = useState(DEFAULTS.grossMultiple);
-  const [fundLife, setFundLife] = useState(DEFAULTS.fundLife);
-  const [investmentPeriod, setInvestmentPeriod] = useState(DEFAULTS.investmentPeriod);
+  const [selectedYear, setSelectedYear] = useState(DEFAULTS.selectedYear);
+  const [playing, setPlaying] = useState(true);
+  const yearSliderProgress = (selectedYear / fundLife) * 100;
 
   const annualCurve = useMemo(
     () => buildAnnualGrossCurve(fundLife, Math.min(investmentPeriod, Math.max(1, fundLife - 1)), grossMultiple),
     [fundLife, investmentPeriod, grossMultiple]
   );
 
-  const series = useMemo(() => {
-    const called = annualCurve.map((row) => row.drawdown * commitmentM);
-    const nav = annualCurve.map((row) => row.nav * commitmentM);
-    const dist = annualCurve.map((row) => row.dpi * commitmentM);
-    const tv = annualCurve.map((row) => (row.nav + row.dpi) * commitmentM);
-    return { called, nav, dist, tv };
+  const annualRows = useMemo(() => {
+    return annualCurve.map((row, idx) => {
+      const prev = idx > 0 ? annualCurve[idx - 1] : annualCurve[0];
+      const calledToDateM = row.drawdown * commitmentM;
+      const distributedToDateM = row.dpi * commitmentM;
+      const navM = row.nav * commitmentM;
+      const capitalCallThisYearM = idx === 0 ? 0 : (row.drawdown - prev.drawdown) * commitmentM;
+      const distributionThisYearM = idx === 0 ? 0 : (row.dpi - prev.dpi) * commitmentM;
+      const netCashThisYearM = distributionThisYearM - capitalCallThisYearM;
+      return {
+        year: row.year,
+        calledToDateM,
+        distributedToDateM,
+        navM,
+        tvpi: row.tvpi,
+        capitalCallThisYearM,
+        distributionThisYearM,
+        netCashThisYearM
+      };
+    });
   }, [annualCurve, commitmentM]);
 
-  const peakNavM = Math.max(...series.nav);
-  const peakNavYear = series.nav.findIndex((value) => value === peakNavM);
-  const finalNetValueM = series.tv[series.tv.length - 1];
-  const yearLabels = annualCurve.map((row) => `Yr ${row.year}`);
+  useEffect(() => {
+    if (selectedYear > fundLife) {
+      setSelectedYear(fundLife);
+    }
+  }, [selectedYear, fundLife]);
+
+  useEffect(() => {
+    if (!playing) return undefined;
+    const timer = window.setInterval(() => {
+      setSelectedYear((prev) => (prev >= fundLife ? 0 : prev + 1));
+    }, 950);
+    return () => window.clearInterval(timer);
+  }, [playing, fundLife]);
+
+  const growthStartYear = Math.max(1, investmentPeriod + 1);
+  const harvestStartYear = Math.max(growthStartYear + 1, fundLife - 3);
+  const stages = [
+    {
+      key: 'commit',
+      title: '1) Commit Capital',
+      range: 'Fund close (Yr 0)',
+      lpImpact: 'LP signs commitment; capital is reserved for future calls.',
+      cashDirection: 'neutral',
+      active: selectedYear === 0
+    },
+    {
+      key: 'deploy',
+      title: '2) Deploy Into Companies',
+      range: `Yr 1-${investmentPeriod}`,
+      lpImpact: 'GP calls capital as investments are executed. LP sends cash to the fund.',
+      cashDirection: 'to-fund',
+      active: selectedYear >= 1 && selectedYear <= investmentPeriod
+    },
+    {
+      key: 'grow',
+      title: '3) Grow & Mature',
+      range: `Yr ${growthStartYear}-${Math.max(growthStartYear, harvestStartYear - 1)}`,
+      lpImpact: 'NAV builds from value creation. Distributions start but are usually not dominant yet.',
+      cashDirection: 'mixed',
+      active: selectedYear >= growthStartYear && selectedYear < harvestStartYear
+    },
+    {
+      key: 'harvest',
+      title: '4) Harvest & Exit',
+      range: `Yr ${harvestStartYear}-${fundLife}`,
+      lpImpact: 'Assets are sold and cash returns accelerate. LP generally receives net cash back.',
+      cashDirection: 'to-lp',
+      active: selectedYear >= harvestStartYear
+    }
+  ];
+  const activeStage = stages.find((stage) => stage.active) || stages[0];
+  const selectedRow = annualRows[selectedYear] || annualRows[0];
+  const finalRow = annualRows[annualRows.length - 1];
+  const peakNavM = Math.max(...annualRows.map((row) => row.navM));
+  const peakNavYear = annualRows.find((row) => row.navM === peakNavM)?.year ?? 0;
+  const laneDirection = selectedRow.netCashThisYearM > 2
+    ? 'to-lp'
+    : selectedRow.netCashThisYearM < -2
+      ? 'to-fund'
+      : activeStage.cashDirection;
+  const flowByStage = {
+    commit: ['lp-fund'],
+    deploy: ['lp-fund', 'fund-companies'],
+    grow: ['fund-companies', 'companies-fund'],
+    harvest: ['companies-fund', 'fund-lp', 'fund-gp']
+  };
+  const activeFlows = flowByStage[activeStage.key] || [];
 
   const resetSection = () => {
-    setCommitmentM(DEFAULTS.commitmentM);
-    setGrossMultiple(DEFAULTS.grossMultiple);
-    setFundLife(DEFAULTS.fundLife);
-    setInvestmentPeriod(DEFAULTS.investmentPeriod);
+    setSelectedYear(DEFAULTS.selectedYear);
+    setPlaying(true);
   };
 
   return (
     <section id="portfolio-single-fund" className="content-section">
       <h2>1. Single Fund Lifecycle</h2>
       <p>
-        A single PE commitment is not deployed on day one. Capital is called over several years,
-        NAV builds as assets mature, and NAV later declines as distributions are paid.
+        A single fund follows a defined sequence: LPs commit capital, the GP draws it to invest in
+        companies, those companies mature, and then exits convert NAV into distributions back to LPs.
+        The cash-flow direction flips over time.
       </p>
       <div className="interactive-block">
-        <div className="block-actions">
-          <ResetButton onClick={resetSection} />
+        <div className="portfolio-lifecycle-automation">
+          <div className="portfolio-lifecycle-automation-head">
+            <div>
+              <div className="portfolio-lifecycle-automation-label">Lifecycle Year</div>
+              <div className="portfolio-lifecycle-year-readout">Year {selectedYear}</div>
+            </div>
+            <div className="portfolio-lifecycle-automation-actions">
+              <button
+                type="button"
+                className={`portfolio-play-button ${playing ? 'playing' : ''}`}
+                onClick={() => setPlaying((prev) => !prev)}
+              >
+                {playing ? 'Pause' : 'Play'} Lifecycle
+              </button>
+              <ResetButton onClick={resetSection} />
+            </div>
+          </div>
+          <div className="portfolio-lifecycle-year-range">
+            <span>Yr 0</span>
+            <span>Yr {fundLife}</span>
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={fundLife}
+            step={1}
+            value={selectedYear}
+            onChange={(e) => setSelectedYear(Math.round(Number(e.target.value)))}
+            className="portfolio-lifecycle-year-slider"
+            style={{
+              background: `linear-gradient(to right, #1B2A4A 0%, #1B2A4A ${yearSliderProgress}%, #D9D5CF ${yearSliderProgress}%, #D9D5CF 100%)`
+            }}
+          />
+          <div className="portfolio-lifecycle-stage-tag">
+            Active Stage: <strong>{activeStage.title}</strong> ({activeStage.range})
+          </div>
         </div>
-        <div className="sliders-grid">
-          <Slider
-            label="Commitment"
-            value={commitmentM}
-            min={25}
-            max={300}
-            step={5}
-            format={(v) => formatCurrency(v * 1e6, 0)}
-            onChange={setCommitmentM}
+
+        <div className="metrics-row">
+          <MetricCard
+            label={`Year ${selectedYear} Capital Called`}
+            value={formatCurrency(selectedRow.capitalCallThisYearM * 1e6, 0)}
+            subtext={`Cumulative called ${formatCurrency(selectedRow.calledToDateM * 1e6, 0)}`}
             accent="#1B2A4A"
           />
-          <Slider
-            label="Gross MOIC"
-            value={grossMultiple}
-            min={1.5}
-            max={3.5}
-            step={0.05}
-            format={(v) => `${v.toFixed(2)}x`}
-            onChange={setGrossMultiple}
+          <MetricCard
+            label={`Year ${selectedYear} Distributions`}
+            value={formatCurrency(selectedRow.distributionThisYearM * 1e6, 0)}
+            subtext={`Cumulative distributed ${formatCurrency(selectedRow.distributedToDateM * 1e6, 0)}`}
             accent="#2D6B4F"
           />
-          <Slider
-            label="Fund Life"
-            value={fundLife}
-            min={8}
-            max={15}
-            step={1}
-            format={(v) => `${Math.round(v)} years`}
-            onChange={(v) => setFundLife(Math.round(v))}
-            accent="#C9A84C"
-          />
-          <Slider
-            label="Investment Period"
-            value={investmentPeriod}
-            min={3}
-            max={7}
-            step={1}
-            format={(v) => `${Math.round(v)} years`}
-            onChange={(v) => setInvestmentPeriod(Math.round(v))}
+          <MetricCard
+            label={`Year ${selectedYear} NAV`}
+            value={formatCurrency(selectedRow.navM * 1e6, 0)}
+            subtext={`Peak ${formatCurrency(peakNavM * 1e6, 0)} in year ${peakNavYear}`}
             accent="#B5473A"
           />
         </div>
 
-        <div className="metrics-row">
-          <MetricCard label="Peak NAV" value={formatCurrency(peakNavM * 1e6, 0)} subtext={`Around year ${peakNavYear}`} accent="#2D6B4F" />
-          <MetricCard label="Final Gross Value" value={formatCurrency(finalNetValueM * 1e6, 0)} subtext={`${grossMultiple.toFixed(2)}x on commitment`} accent="#1B2A4A" />
-          <MetricCard label="Capital Fully Drawn" value={`${(annualCurve[annualCurve.length - 1].drawdown * 100).toFixed(0)}%`} subtext="By end of investment period" accent="#1B2A4A" />
+        <div className="portfolio-lifecycle-stage-grid">
+          {stages.map((stage) => (
+            <div key={stage.key} className={`portfolio-lifecycle-stage-card ${stage.active ? 'active' : ''}`}>
+              <div className="portfolio-lifecycle-stage-title">{stage.title}</div>
+              <div className="portfolio-lifecycle-stage-range">{stage.range}</div>
+              <p>{stage.lpImpact}</p>
+            </div>
+          ))}
         </div>
 
-        <h3 className="chart-title">Drawdown vs Distributions</h3>
-        <ComparisonChart
-          seriesA={series.called}
-          seriesB={series.dist}
-          labelA="Cumulative Capital Called"
-          labelB="Cumulative Distributions"
-          xLabels={yearLabels}
-          xTickStep={2}
-          yFormatter={(v) => formatCurrency(v * 1e6, 0)}
-          colorA="#1B2A4A"
-          colorB="#9AB8D8"
-          height={250}
-        />
+        <div className="portfolio-flow-sketch">
+          <svg
+            className="portfolio-flow-svg"
+            viewBox="0 0 1000 360"
+            preserveAspectRatio="xMidYMid meet"
+            role="img"
+            aria-label="Single fund lifecycle cash flow from LP to fund to companies and back to LP and GP"
+          >
+            <defs>
+              <marker id="flowArrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="currentColor" />
+              </marker>
+            </defs>
 
-        <h3 className="chart-title">NAV Path and Total Value (NAV + DPI)</h3>
-        <ComparisonChart
-          seriesA={series.nav}
-          seriesB={series.tv}
-          labelA="NAV"
-          labelB="Total Value"
-          xLabels={yearLabels}
-          xTickStep={2}
-          yFormatter={(v) => formatCurrency(v * 1e6, 0)}
-          colorA="#2D6B4F"
-          colorB="#1B2A4A"
-          height={250}
-        />
+            <g className="portfolio-flow-node" transform="translate(48 42) rotate(-0.5)">
+              <rect x="0" y="0" width="180" height="84" rx="10" />
+              <text x="90" y="34">LP Capital</text>
+              <text x="90" y="58">Pension / Endowment</text>
+            </g>
+
+            <g className="portfolio-flow-node" transform="translate(386 42) rotate(0.5)">
+              <rect x="0" y="0" width="220" height="84" rx="10" />
+              <text x="110" y="34">Fund Vehicle</text>
+              <text x="110" y="58">Calls + distributions</text>
+            </g>
+
+            <g className="portfolio-flow-node" transform="translate(728 42) rotate(-0.4)">
+              <rect x="0" y="0" width="220" height="108" rx="10" />
+              <text x="110" y="30">Portfolio Companies</text>
+              <text x="110" y="55">Operating growth + exits</text>
+              <g className="portfolio-company-doodles" transform="translate(20 66)">
+                <rect x="0" y="10" width="34" height="24" rx="2" />
+                <line x1="0" y1="34" x2="34" y2="34" />
+                <line x1="8" y1="18" x2="8" y2="26" />
+                <line x1="16" y1="18" x2="16" y2="26" />
+                <line x1="24" y1="18" x2="24" y2="26" />
+
+                <path d="M52 34 L52 16 L68 8 L68 16 L82 10 L82 34 Z" />
+                <line x1="58" y1="20" x2="58" y2="27" />
+                <line x1="64" y1="20" x2="64" y2="27" />
+                <line x1="74" y1="18" x2="74" y2="27" />
+
+                <rect x="100" y="16" width="38" height="18" rx="9" />
+                <line x1="110" y1="16" x2="110" y2="8" />
+                <circle cx="110" cy="6" r="2" />
+                <line x1="128" y1="16" x2="128" y2="9" />
+                <circle cx="128" cy="7" r="2" />
+
+                <rect x="152" y="12" width="42" height="22" rx="3" />
+                <line x1="164" y1="34" x2="164" y2="42" />
+                <line x1="182" y1="34" x2="182" y2="42" />
+                <line x1="152" y1="42" x2="194" y2="42" />
+              </g>
+            </g>
+
+            <g className="portfolio-flow-node" transform="translate(386 228) rotate(-0.4)">
+              <rect x="0" y="0" width="220" height="84" rx="10" />
+              <text x="110" y="34">Exit Proceeds</text>
+              <text x="110" y="58">Cash back in fund</text>
+            </g>
+
+            <g className="portfolio-flow-node terminal lp" transform="translate(80 228) rotate(0.4)">
+              <rect x="0" y="0" width="220" height="84" rx="10" />
+              <text x="110" y="34">LP Net Distributions</text>
+              <text x="110" y="58">Capital + gains</text>
+            </g>
+
+            <g className="portfolio-flow-node terminal gp" transform="translate(700 228) rotate(-0.2)">
+              <rect x="0" y="0" width="220" height="84" rx="10" />
+              <text x="110" y="34">GP Profit Share</text>
+              <text x="110" y="58">Carry on profits</text>
+            </g>
+
+            <line
+              x1="228"
+              y1="84"
+              x2="386"
+              y2="84"
+              className={`portfolio-flow-arrow ${activeFlows.includes('lp-fund') ? 'active' : ''}`}
+              markerEnd="url(#flowArrow)"
+            />
+            <text x="308" y="56" className={`portfolio-flow-label ${activeFlows.includes('lp-fund') ? 'active' : ''}`}>Capital calls</text>
+
+            <line
+              x1="606"
+              y1="84"
+              x2="728"
+              y2="90"
+              className={`portfolio-flow-arrow ${activeFlows.includes('fund-companies') ? 'active' : ''}`}
+              markerEnd="url(#flowArrow)"
+            />
+            <text x="667" y="56" className={`portfolio-flow-label ${activeFlows.includes('fund-companies') ? 'active' : ''}`}>Deploy capital</text>
+
+            <path
+              d="M 840 150 C 804 186, 710 216, 496 228"
+              className={`portfolio-flow-arrow ${activeFlows.includes('companies-fund') ? 'active' : ''}`}
+              markerEnd="url(#flowArrow)"
+              fill="none"
+            />
+            <text x="734" y="176" className={`portfolio-flow-label ${activeFlows.includes('companies-fund') ? 'active' : ''}`}>Exits / realizations</text>
+
+            <line
+              x1="386"
+              y1="270"
+              x2="300"
+              y2="270"
+              className={`portfolio-flow-arrow ${activeFlows.includes('fund-lp') ? 'active' : ''}`}
+              markerEnd="url(#flowArrow)"
+            />
+            <text x="340" y="242" className={`portfolio-flow-label ${activeFlows.includes('fund-lp') ? 'active' : ''}`}>Net to LPs</text>
+
+            <line
+              x1="606"
+              y1="270"
+              x2="700"
+              y2="270"
+              className={`portfolio-flow-arrow ${activeFlows.includes('fund-gp') ? 'active' : ''}`}
+              markerEnd="url(#flowArrow)"
+            />
+            <text x="652" y="242" className={`portfolio-flow-label ${activeFlows.includes('fund-gp') ? 'active' : ''}`}>Carry to GP</text>
+          </svg>
+          <div className="portfolio-flow-caption">
+            {laneDirection === 'to-fund'
+              ? `Year ${selectedYear}: LP cash is still predominantly flowing into the fund.`
+              : laneDirection === 'to-lp'
+                ? `Year ${selectedYear}: exits dominate and the fund is returning net cash to LPs.`
+                : `Year ${selectedYear}: the fund is in transition, with calls and distributions closer to balance.`}
+          </div>
+        </div>
+
+        <p className="portfolio-inline-note">
+          By year {fundLife}, this run lands near {finalRow.tvpi.toFixed(2)}x gross value on the original
+          commitment, with cumulative distributions of {formatCurrency(finalRow.distributedToDateM * 1e6, 0)}.
+        </p>
       </div>
     </section>
   );
@@ -7756,6 +7956,266 @@ export default function App() {
           color: #4F5B72;
         }
 
+        .portfolio-lifecycle-automation {
+          border: 1px solid #DCE3EE;
+          border-radius: 12px;
+          background: #F9FBFF;
+          padding: 14px 16px;
+          margin: 2px 0 12px;
+        }
+
+        .portfolio-lifecycle-automation-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          flex-wrap: wrap;
+        }
+
+        .portfolio-lifecycle-automation-label {
+          font-size: 11px;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #6B7488;
+          margin-bottom: 4px;
+        }
+
+        .portfolio-lifecycle-year-readout {
+          font-size: 34px;
+          line-height: 1;
+          font-weight: 600;
+          color: #1B2A4A;
+          letter-spacing: -0.4px;
+        }
+
+        .portfolio-lifecycle-automation-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+
+        .portfolio-lifecycle-year-range {
+          margin: 10px 0 5px;
+          display: flex;
+          justify-content: space-between;
+          font-size: 11px;
+          color: #6B7488;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+        }
+
+        .portfolio-lifecycle-year-slider {
+          -webkit-appearance: none;
+          width: 100%;
+          height: 8px;
+          border-radius: 999px;
+          outline: none;
+          margin: 2px 0 10px;
+        }
+
+        .portfolio-lifecycle-year-slider::-webkit-slider-thumb {
+          -webkit-appearance: none;
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          background: #ffffff;
+          border: 2px solid #1B2A4A;
+          box-shadow: 0 2px 8px rgba(27, 42, 74, 0.2);
+          cursor: pointer;
+        }
+
+        .portfolio-lifecycle-year-slider::-moz-range-thumb {
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          background: #ffffff;
+          border: 2px solid #1B2A4A;
+          box-shadow: 0 2px 8px rgba(27, 42, 74, 0.2);
+          cursor: pointer;
+        }
+
+        .portfolio-play-button {
+          border: 1px solid #CFD7E5;
+          border-radius: 999px;
+          background: #ffffff;
+          color: #1B2A4A;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          padding: 8px 14px;
+          cursor: pointer;
+        }
+
+        .portfolio-play-button.playing {
+          background: #1B2A4A;
+          color: #ffffff;
+          border-color: #1B2A4A;
+        }
+
+        .portfolio-lifecycle-stage-tag {
+          margin-top: 2px;
+          font-size: 13px;
+          color: #4F5B72;
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          padding: 8px 10px;
+          background: #F8FAFD;
+        }
+
+        .portfolio-lifecycle-stage-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 10px;
+          margin: 10px 0 14px;
+        }
+
+        .portfolio-lifecycle-stage-card {
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          background: #FBFCFF;
+          padding: 11px 12px;
+          transition: border-color 0.2s ease, background 0.2s ease, transform 0.2s ease;
+        }
+
+        .portfolio-lifecycle-stage-card.active {
+          border-color: rgba(27, 42, 74, 0.38);
+          background: #F1F5FC;
+          transform: translateY(-1px);
+        }
+
+        .portfolio-lifecycle-stage-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: #1B2A4A;
+          margin-bottom: 2px;
+        }
+
+        .portfolio-lifecycle-stage-range {
+          font-size: 11px;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          color: #6B7488;
+          margin-bottom: 6px;
+        }
+
+        .portfolio-lifecycle-stage-card p {
+          margin: 0;
+          font-size: 13px;
+          line-height: 1.5;
+          color: #4F5B72;
+        }
+
+        .portfolio-flow-sketch {
+          border: 1px solid #DCE3EE;
+          border-radius: 12px;
+          background:
+            linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(247, 251, 255, 0.96)),
+            repeating-linear-gradient(
+              0deg,
+              rgba(27, 42, 74, 0.03) 0px,
+              rgba(27, 42, 74, 0.03) 1px,
+              transparent 1px,
+              transparent 22px
+            );
+          padding: 14px;
+          margin-top: 8px;
+        }
+
+        .portfolio-flow-svg {
+          width: 100%;
+          height: 400px;
+        }
+
+        .portfolio-flow-node rect {
+          fill: #FFFFFF;
+          stroke: #1B2A4A;
+          stroke-width: 1.9;
+          stroke-dasharray: 8 6;
+          rx: 10;
+        }
+
+        .portfolio-flow-node text {
+          fill: #24344F;
+          text-anchor: middle;
+          font-family: "Courier New", "SFMono-Regular", ui-monospace, monospace;
+        }
+
+        .portfolio-flow-node text:first-of-type {
+          font-size: 17px;
+          font-weight: 700;
+        }
+
+        .portfolio-flow-node text:last-of-type {
+          font-size: 14px;
+          opacity: 1;
+        }
+
+        .portfolio-company-doodles {
+          stroke: #3F587D;
+          fill: none;
+          stroke-width: 1.8;
+          stroke-linecap: round;
+          stroke-linejoin: round;
+        }
+
+        .portfolio-flow-node.terminal.lp rect {
+          stroke: #2D6B4F;
+        }
+
+        .portfolio-flow-node.terminal.gp rect {
+          stroke: #B5473A;
+        }
+
+        .portfolio-flow-arrow {
+          stroke: #B7C2D4;
+          stroke-width: 2.2;
+          stroke-dasharray: 7 9;
+          color: #B7C2D4;
+          opacity: 0.48;
+        }
+
+        .portfolio-flow-arrow.active {
+          stroke: #124A97;
+          color: #124A97;
+          stroke-width: 4.6;
+          stroke-dasharray: 6 6;
+          opacity: 1;
+          animation: flowDash 0.75s linear infinite;
+          filter: drop-shadow(0 0 2px rgba(18, 74, 151, 0.35));
+        }
+
+        .portfolio-flow-label {
+          fill: #3D4D69;
+          font-size: 14px;
+          font-weight: 600;
+          font-family: "Helvetica Neue", Arial, sans-serif;
+          text-anchor: middle;
+          letter-spacing: 0.2px;
+          paint-order: stroke fill;
+          stroke: rgba(255, 255, 255, 0.96);
+          stroke-width: 5px;
+          pointer-events: none;
+        }
+
+        .portfolio-flow-label.active {
+          fill: #124A97;
+          font-weight: 700;
+          stroke: rgba(255, 255, 255, 0.98);
+        }
+
+        .portfolio-flow-caption {
+          margin-top: 8px;
+          font-size: 14px;
+          color: #2E3F5E;
+          line-height: 1.5;
+        }
+
+        @keyframes flowDash {
+          from { stroke-dashoffset: 24; }
+          to { stroke-dashoffset: 0; }
+        }
+
         .portfolio-mix-chips {
           display: flex;
           flex-wrap: wrap;
@@ -9417,6 +9877,14 @@ export default function App() {
             grid-template-columns: 1fr;
           }
 
+          .portfolio-lifecycle-stage-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
+          .portfolio-flow-svg {
+            height: 360px;
+          }
+
           .sliders-grid.three-up {
             grid-template-columns: repeat(2, minmax(140px, 1fr));
           }
@@ -9465,6 +9933,27 @@ export default function App() {
 
           .portfolio-mix-chips {
             gap: 6px;
+          }
+
+          .portfolio-lifecycle-stage-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .portfolio-lifecycle-automation {
+            padding: 12px 12px;
+          }
+
+          .portfolio-lifecycle-year-readout {
+            font-size: 30px;
+          }
+
+          .portfolio-lifecycle-automation-actions {
+            width: 100%;
+            justify-content: flex-start;
+          }
+
+          .portfolio-flow-svg {
+            height: 480px;
           }
 
           .hero-graphboard {
