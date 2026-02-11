@@ -1628,6 +1628,7 @@ const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMult
   const [localGrossMultipleTarget, setLocalGrossMultipleTarget] = useState(BASELINE_GROSS_TVPI);
   const grossMultipleTarget = globalGrossMultiple ?? localGrossMultipleTarget;
   const setGrossMultipleTarget = onGrossMultipleChange ?? setLocalGrossMultipleTarget;
+  const [viewportTick, setViewportTick] = useState(0);
   const resetMasterDashboard = () => {
     setFundSize(DEFAULTS.fundSize);
     setFundLife(DEFAULTS.fundLife);
@@ -1638,6 +1639,12 @@ const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMult
     setHurdleRate(DEFAULTS.hurdleRate);
     setGrossMultipleTarget(DEFAULTS.grossMultipleTarget);
   };
+
+  useEffect(() => {
+    const handleResize = () => setViewportTick((v) => v + 1);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Calculate everything from GROSS down to NET
   const calculations = useMemo(() => {
@@ -1865,7 +1872,7 @@ const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMult
     ctx.fillStyle = '#9A9690';
     ctx.fillText(legendDistLabel, thirdLegendX + 22, legendY + 5);
 
-  }, [calculations, fundLife, investmentPeriod, fundSize]);
+  }, [calculations, fundLife, investmentPeriod, fundSize, viewportTick]);
 
   // Waterfall canvas
   const waterfallCanvasRef = useRef(null);
@@ -1964,7 +1971,7 @@ const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMult
       ctx.fillText(stage.label, x + barWidth / 2, height - padding.bottom + 20);
     });
 
-  }, [calculations]);
+  }, [calculations, viewportTick]);
 
   return (
     <section id={sectionId} className={`master-dashboard ${asSynthesis ? 'synthesis-dashboard' : ''}`}>
@@ -4231,25 +4238,30 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
     };
   }, [grossMultiple, fundLife]);
 
-  const irrCurve = useMemo(() => {
+  const curveData = useMemo(() => {
     const labels = [];
-    const twoTwenty = [];
-    const oneThirty = [];
+    const twoTwentyTVPI = [];
+    const oneThirtyTVPI = [];
+    const twoTwentyIRR = [];
+    const oneThirtyIRR = [];
     for (let m = 1.0; m <= 3.5001; m += CURVE_STEP) {
       const gross = Number(m.toFixed(2));
+      const twoTwenty = calcNetOutcome(gross, 0.02, 0.20);
+      const oneThirty = calcNetOutcome(gross, 0.01, 0.30);
       labels.push(`${gross.toFixed(2)}x`);
-      twoTwenty.push(calcNetOutcome(gross, 0.02, 0.20).netIRR * 100);
-      oneThirty.push(calcNetOutcome(gross, 0.01, 0.30).netIRR * 100);
+      twoTwentyTVPI.push(twoTwenty.netMultiple);
+      oneThirtyTVPI.push(oneThirty.netMultiple);
+      twoTwentyIRR.push(twoTwenty.netIRR * 100);
+      oneThirtyIRR.push(oneThirty.netIRR * 100);
     }
-    return { labels, twoTwenty, oneThirty };
+    return { labels, twoTwentyTVPI, oneThirtyTVPI, twoTwentyIRR, oneThirtyIRR };
   }, [fundLife]);
 
-  const crossoverResult = useMemo(() => {
-    const EPS = 0.01; // 0.01% IRR ~= 1 bp in chart units
-    const points = irrCurve.labels
+  const findCrossover = (seriesA, seriesB, eps) => {
+    const points = curveData.labels
       .map((label, i) => ({
         multiple: parseFloat(label),
-        diff: irrCurve.twoTwenty[i] - irrCurve.oneThirty[i]
+        diff: seriesA[i] - seriesB[i]
       }))
       .filter((p) => Number.isFinite(p.multiple) && Number.isFinite(p.diff));
 
@@ -4264,19 +4276,17 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
       const leftDiff = left.diff;
       const rightDiff = right.diff;
 
-      if (Math.abs(leftDiff) <= EPS) {
+      if (Math.abs(leftDiff) <= eps) {
         const tailDiffs = points.slice(i - 1).map((p) => p.diff);
         const tailMin = Math.min(...tailDiffs);
         upwardCandidates.push({
           multiple: left.multiple,
-          sustained: tailMin >= -EPS
+          sustained: tailMin >= -eps
         });
         continue;
       }
 
-      // We only care about the economically intuitive transition:
-      // low gross range favors lower fee; high gross range favors lower carry.
-      const isUpwardCross = leftDiff < -EPS && rightDiff > EPS;
+      const isUpwardCross = leftDiff < -eps && rightDiff > eps;
       if (!isUpwardCross) continue;
 
       const denom = rightDiff - leftDiff;
@@ -4287,7 +4297,7 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
       const tailMin = Math.min(...tailDiffs);
       upwardCandidates.push({
         multiple: x,
-        sustained: tailMin >= -EPS
+        sustained: tailMin >= -eps
       });
     }
 
@@ -4303,18 +4313,35 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
     const selected = sustained ? sustained.multiple : upwardCandidates[0].multiple;
 
     return { hasCrossover: true, multiple: selected };
-  }, [irrCurve]);
+  };
 
-  const crossoverMultiple = crossoverResult.multiple;
-  const crossoverIndex = useMemo(() => {
-    const rawIndex = Math.round((crossoverMultiple - 1.0) / CURVE_STEP);
-    return Math.max(0, Math.min(irrCurve.labels.length - 1, rawIndex));
-  }, [crossoverMultiple, irrCurve.labels.length]);
+  const tvpiCrossoverResult = useMemo(
+    () => findCrossover(curveData.twoTwentyTVPI, curveData.oneThirtyTVPI, 0.001),
+    [curveData]
+  );
+  const irrCrossoverResult = useMemo(
+    () => findCrossover(curveData.twoTwentyIRR, curveData.oneThirtyIRR, 0.01),
+    [curveData]
+  );
+
+  const tvpiCrossoverMultiple = tvpiCrossoverResult.multiple;
+  const tvpiCrossoverIndex = useMemo(() => {
+    const rawIndex = Math.round((tvpiCrossoverMultiple - 1.0) / CURVE_STEP);
+    return Math.max(0, Math.min(curveData.labels.length - 1, rawIndex));
+  }, [tvpiCrossoverMultiple, curveData.labels.length]);
 
   const irrOutcomes = Object.values(structures).map((s) => s.netIRR);
   const bestNetIRR = Math.max(...irrOutcomes);
   const worstNetIRR = Math.min(...irrOutcomes);
   const irrSpreadBps = (bestNetIRR - worstNetIRR) * 10000;
+  const tvpiOutcomes = Object.values(structures).map((s) => s.netMultiple);
+  const bestNetTVPI = Math.max(...tvpiOutcomes);
+  const worstNetTVPI = Math.min(...tvpiOutcomes);
+  const tvpiSpread = bestNetTVPI - worstNetTVPI;
+  const currentTvpiSpread = structures.twoTwenty.netMultiple - structures.oneThirty.netMultiple;
+  const currentIrrSpreadBps = (structures.twoTwenty.netIRR - structures.oneThirty.netIRR) * 10000;
+  const betterTvpiStructure = currentTvpiSpread >= 0 ? '2% / 20%' : '1% / 30%';
+  const betterIrrStructure = currentIrrSpreadBps >= 0 ? '2% / 20%' : '1% / 30%';
 
   return (
     <section id="fee-carry-tradeoff" className="content-section">
@@ -4367,9 +4394,9 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
           {Object.entries(structures).map(([key, data]) => (
             <div key={key} className="structure-card" style={{ borderColor: data.color }}>
               <div className="structure-label" style={{ color: data.color }}>{data.label}</div>
-              <div className="structure-net">{formatPercent(data.netIRR, 1)} net IRR</div>
+              <div className="structure-net structure-tvpi">{data.netMultiple.toFixed(2)}x net TVPI</div>
+              <div className="structure-secondary">{formatPercent(data.netIRR, 1)} net IRR</div>
               <div className="structure-breakdown">
-                <span>Net TVPI: {data.netMultiple.toFixed(2)}x</span>
                 <span>Mgmt: {formatCurrency(data.mgmtFees, 0)}</span>
                 <span>Carry: {formatCurrency(data.carry, 0)}</span>
               </div>
@@ -4377,22 +4404,38 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
           ))}
         </div>
 
+        <div className="tvpi-crossover-banner">
+          <div className="tvpi-crossover-topline">TVPI Crossover (Primary)</div>
+          {tvpiCrossoverResult.hasCrossover ? (
+            <>
+              <div className="tvpi-crossover-value">{tvpiCrossoverMultiple.toFixed(2)}x gross MOIC</div>
+              <div className="tvpi-crossover-subtext">
+                At this gross outcome, both fee structures land on roughly the same net TVPI.
+              </div>
+            </>
+          ) : (
+            <div className="tvpi-crossover-subtext">
+              No TVPI crossover appears in the displayed range (1.0x to 3.5x gross).
+            </div>
+          )}
+        </div>
+
         <div className="tradeoff-curve">
-          <div className="tradeoff-curve-title">Net IRR Across Gross MOIC Outcomes</div>
+          <div className="tradeoff-curve-title">Net TVPI Across Gross MOIC Outcomes</div>
           <ComparisonChart
-            seriesA={irrCurve.twoTwenty}
-            seriesB={irrCurve.oneThirty}
+            seriesA={curveData.twoTwentyTVPI}
+            seriesB={curveData.oneThirtyTVPI}
             labelA="2% / 20%"
             labelB="1% / 30%"
-            xLabels={irrCurve.labels}
+            xLabels={curveData.labels}
             xTickStep={10}
-            yFormatter={(v) => `${v.toFixed(1)}%`}
+            yFormatter={(v) => `${v.toFixed(2)}x`}
             colorA="#1B2A4A"
             colorB="#B5473A"
             height={220}
-            marker={crossoverResult.hasCrossover ? {
-              index: crossoverIndex,
-              label: `Crossover ${crossoverMultiple.toFixed(2)}x`,
+            marker={tvpiCrossoverResult.hasCrossover ? {
+              index: tvpiCrossoverIndex,
+              label: `TVPI Cross ${tvpiCrossoverMultiple.toFixed(2)}x`,
               color: '#C9A84C'
             } : null}
           />
@@ -4404,25 +4447,31 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
         </p>
 
         <div className="net-impact-panel">
-          <div className="net-impact-title">Net Investor Impact</div>
+          <div className="net-impact-title">Current View And Crossover Snapshot</div>
           <div className="metrics-row">
             <MetricCard
-              label="Best Net IRR"
-              value={formatPercent(bestNetIRR, 1)}
-              subtext="Most LP-favorable structure here"
+              label="TVPI Spread (Current Gross)"
+              value={`${Math.abs(currentTvpiSpread).toFixed(2)}x`}
+              subtext={`${betterTvpiStructure} currently ahead on TVPI`}
               accent="#1B2A4A"
             />
             <MetricCard
-              label="Worst Net IRR"
-              value={formatPercent(worstNetIRR, 1)}
-              subtext="Least LP-favorable structure here"
+              label="IRR Spread (Current Gross)"
+              value={`${Math.abs(currentIrrSpreadBps).toFixed(0)} bps`}
+              subtext={`${betterIrrStructure} currently ahead on IRR`}
               accent="#B5473A"
             />
             <MetricCard
-              label="IRR Spread"
-              value={`${irrSpreadBps.toFixed(0)} bps`}
-              subtext="Pure fee-structure impact"
+              label="IRR Crossover (Secondary)"
+              value={irrCrossoverResult.hasCrossover ? `${irrCrossoverResult.multiple.toFixed(2)}x` : 'N/A'}
+              subtext="Shown for context; TVPI crossover is primary"
               accent="#9A9690"
+            />
+            <MetricCard
+              label="TVPI Range At Current Gross"
+              value={`${worstNetTVPI.toFixed(2)}x-${bestNetTVPI.toFixed(2)}x`}
+              subtext="Across 2/20 and 1/30 terms"
+              accent="#2D6B4F"
             />
           </div>
         </div>
@@ -4446,15 +4495,18 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
       <div className="callout callout-insight">
         <div className="callout-icon">🎯</div>
         <div className="callout-content">
-          {crossoverResult.hasCrossover ? (
+          {tvpiCrossoverResult.hasCrossover ? (
             <>
-              In this IRR setup, the crossover is around <strong>{crossoverMultiple.toFixed(2)}x gross</strong>.
+              TVPI crossover is around <strong>{tvpiCrossoverMultiple.toFixed(2)}x gross</strong>.
               Below that point, lower fees tend to dominate; above it, lower carry tends to dominate.
+              {irrCrossoverResult.hasCrossover && (
+                <> IRR crossover in this run is around <strong>{irrCrossoverResult.multiple.toFixed(2)}x gross</strong>.</>
+              )}
             </>
           ) : (
             <>
-              In this IRR setup, no crossover appears in the displayed range (1.0x to 3.5x gross).
-              In that range, one structure stays marginally ahead on IRR, while TVPI can still tell a different story.
+              No TVPI crossover appears in the displayed range (1.0x to 3.5x gross).
+              In this range, one structure stays ahead on net multiple.
             </>
           )}
         </div>
@@ -5240,13 +5292,10 @@ export default function App() {
           .synthesis-grid {
             grid-template-columns: minmax(250px, 1fr) minmax(250px, 1fr);
             grid-template-areas:
-              "controls metrics";
-            max-width: 860px;
+              "controls metrics"
+              "main main";
+            max-width: 960px;
             gap: 16px;
-          }
-
-          .synthesis-grid .synthesis-main {
-            display: none;
           }
         }
 
@@ -5255,7 +5304,8 @@ export default function App() {
             grid-template-columns: 1fr;
             grid-template-areas:
               "controls"
-              "metrics";
+              "metrics"
+              "main";
             max-width: 700px;
           }
         }
