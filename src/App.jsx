@@ -2213,7 +2213,10 @@ const HeroSection = () => (
     <section id="hero-baseline" className="hero-section">
       <div className="pathway-badge">Interactive Learning Model</div>
       <h1>The Economics of Private Equity</h1>
-      <p className="hero-subtitle">A guide to getting from gross to net.</p>
+      <p className="hero-subtitle">
+        Controlling costs in private markets is critical. Below is an interactive guide to help
+        you understand how these costs impact returns, and strategies for how Pathway improves these outcomes.
+      </p>
       <p className="hero-purpose-note">
         This guide is for LPs who want to understand what they are paying for. Strong funds can
         justify strong economics, but only if you can trace each term from gross performance to net outcome.
@@ -5418,10 +5421,12 @@ export default function App() {
         }
 
         .hero-subtitle {
-          font-size: 18px;
+          font-size: clamp(20px, 2.4vw, 28px);
+          font-weight: 400;
           color: #9A9690;
-          max-width: 760px;
+          max-width: 980px;
           margin: 0 auto 22px;
+          line-height: 1.35;
         }
 
         .hero-purpose-note {
