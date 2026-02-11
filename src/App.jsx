@@ -127,7 +127,8 @@ const LIQUIDITY_SECTION_LINKS = [
   { id: 'liquidity-hero', label: 'Liquidity 101' },
   { id: 'liquidity-normal-course', label: 'Normal-Course Exits' },
   { id: 'liquidity-secondaries', label: 'Secondaries' },
-  { id: 'liquidity-toolkit', label: 'Liquidity Toolkit' }
+  { id: 'liquidity-toolkit', label: 'Liquidity Toolkit' },
+  { id: 'liquidity-to-be-built', label: 'To Be Built' }
 ];
 
 const SideNav = ({ sections }) => {
@@ -5142,6 +5143,40 @@ const LiquidityToolkitSection = () => (
   </section>
 );
 
+const LiquidityToBeBuiltSection = () => (
+  <section id="liquidity-to-be-built" className="content-section">
+    <h2>To Be Built</h2>
+    <p>
+      Next modules for this liquidity guide are scoped below. This keeps the roadmap visible while
+      we ship section-by-section with real Pathway data and practical LP use cases.
+    </p>
+
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Cash Forecasting Engine</h3>
+        <p>
+          Interactive pacing model for calls and distributions, with downside scenarios and
+          denominator-shock overlays.
+        </p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Secondary Pricing Lens</h3>
+        <p>
+          NAV discount/premium analyzer by vintage, strategy, and quality bucket to quantify
+          the cost of immediate liquidity.
+        </p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Portfolio Rebalancing Playbook</h3>
+        <p>
+          Decision framework for when to pace new commitments, sell secondaries, or lean into
+          co-investments during stressed markets.
+        </p>
+      </div>
+    </div>
+  </section>
+);
+
 // ============================================================================
 // MAIN APP
 // ============================================================================
@@ -7579,6 +7614,7 @@ export default function App() {
                 globalGrossMultiple={globalGrossMultiple}
               />
               <LiquidityToolkitSection />
+              <LiquidityToBeBuiltSection />
             </>
           )}
         </main>
