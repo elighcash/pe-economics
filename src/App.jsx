@@ -1893,9 +1893,9 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
         ctx.stroke();
         const tickVal = maxY - (i / 5) * yRange;
         ctx.fillStyle = '#7A8397';
-        ctx.font = '10px Helvetica Neue';
+        ctx.font = '13px Helvetica Neue';
         ctx.textAlign = 'right';
-        ctx.fillText(`${tickVal.toFixed(1)}x`, padding.left - 8, y + 4);
+        ctx.fillText(`${tickVal.toFixed(1)}x`, padding.left - 8, y + 5);
       }
 
       const quarterStride = maxQuarter > 40 ? 8 : 4;
@@ -1908,7 +1908,7 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
         ctx.lineTo(x, h - padding.bottom);
         ctx.stroke();
         ctx.fillStyle = '#7A8397';
-        ctx.font = '10px Helvetica Neue';
+        ctx.font = '13px Helvetica Neue';
         ctx.textAlign = 'center';
         ctx.fillText(`Yr ${((q - 1) / 4).toFixed(0)}`, x, h - 28);
       }
@@ -1937,7 +1937,7 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
         const lx = xForQuarter(last.quarter);
         const ly = yForValue(last.value);
         const label = 'Aggregate trend (median)';
-        ctx.font = '600 11px Helvetica Neue';
+        ctx.font = '600 13px Helvetica Neue';
         const lw = ctx.measureText(label).width + 10;
         const bx = Math.max(padding.left + 4, Math.min(width - padding.right - lw, lx - lw - 8));
         const by = Math.max(padding.top + 4, ly - 16);
@@ -1947,17 +1947,17 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
         ctx.strokeRect(bx, by, lw, 14);
         ctx.fillStyle = '#1B2A4A';
         ctx.textAlign = 'left';
-        ctx.fillText(label, bx + 5, by + 10);
+        ctx.fillText(label, bx + 5, by + 11);
       }
 
       ctx.fillStyle = '#5F687A';
-      ctx.font = '11px Helvetica Neue';
+      ctx.font = '13px Helvetica Neue';
       ctx.textAlign = 'center';
       ctx.fillText('Quarters Since Vintage Inception', padding.left + chartWidth / 2, h - 10);
 
       // Inline legend
       ctx.textAlign = 'left';
-      ctx.font = '11px Helvetica Neue';
+      ctx.font = '13px Helvetica Neue';
       ctx.fillStyle = '#4A4641';
       ctx.strokeStyle = '#4A7BA7';
       ctx.lineWidth = 2;
@@ -1967,7 +1967,7 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
       ctx.lineTo(padding.left + 20, 12);
       ctx.stroke();
       ctx.globalAlpha = 1;
-      ctx.fillText('Each vintage RVPI path', padding.left + 26, 16);
+      ctx.fillText('Each vintage RVPI path', padding.left + 26, 17);
       const secondX = padding.left + 220;
       ctx.strokeStyle = '#1B2A4A';
       ctx.lineWidth = 2.4;
@@ -1977,7 +1977,7 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
       ctx.lineTo(secondX + 20, 12);
       ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillText('Median trend', secondX + 26, 16);
+      ctx.fillText('Median trend', secondX + 26, 17);
     };
 
     let xForQuarter = () => 0;
@@ -8011,8 +8011,8 @@ const PortfolioForecastBandChart = ({
   horizonYears = 12,
   maxY = 4
 }) => {
-  const width = 1000;
-  const height = 390;
+  const width = 760;
+  const height = 360;
   const padding = { top: 20, right: 24, bottom: 36, left: 52 };
   const plotWidth = width - padding.left - padding.right;
   const plotHeight = height - padding.top - padding.bottom;
@@ -8051,6 +8051,14 @@ const PortfolioForecastBandChart = ({
   const focusX = xFor(focus);
   const yLow = yFor(focusLow);
   const yHigh = yFor(focusHigh);
+  const focusLabel = `Focus: Yr ${focus}`;
+  const focusLabelWidth = Math.max(86, focusLabel.length * 10 + 10);
+  const focusLabelX = Math.min(width - padding.right - focusLabelWidth, focusX + 8);
+  const focusLabelY = padding.top + 4;
+  const rangeLabel = `${focusLow.toFixed(2)}x to ${focusHigh.toFixed(2)}x`;
+  const rangeLabelWidth = Math.max(120, rangeLabel.length * 10 + 10);
+  const rangeLabelX = Math.min(width - padding.right - rangeLabelWidth, focusX + 10);
+  const rangeLabelY = Math.max(padding.top + 16, yHigh - 22);
 
   return (
     <div className="portfolio-funnel-chart-shell">
@@ -8070,7 +8078,7 @@ const PortfolioForecastBandChart = ({
               stroke="#E4EAF3"
               strokeWidth="1"
             />
-            <text x={padding.left - 8} y={yFor(tick) + 5} textAnchor="end" fontSize="16" fill="#6B7488">
+            <text x={padding.left - 8} y={yFor(tick) + 6} textAnchor="end" fontSize="19" fill="#6B7488">
               {tick.toFixed(1)}x
             </text>
           </g>
@@ -8086,7 +8094,7 @@ const PortfolioForecastBandChart = ({
               stroke="#F1F4FA"
               strokeWidth="1"
             />
-            <text x={xFor(year)} y={height - 12} textAnchor="middle" fontSize="16" fill="#6B7488">
+            <text x={xFor(year)} y={height - 12} textAnchor="middle" fontSize="18" fill="#6B7488">
               Yr {year}
             </text>
           </g>
@@ -8113,13 +8121,31 @@ const PortfolioForecastBandChart = ({
         ))}
 
         <line x1={focusX} y1={padding.top} x2={focusX} y2={padding.top + plotHeight} stroke="#1B2A4A" strokeWidth="1.2" strokeDasharray="5 4" />
-        <text x={focusX + 7} y={padding.top + 15} fontSize="15" fill="#1B2A4A">Focus: Yr {focus}</text>
+        <rect
+          x={focusLabelX}
+          y={focusLabelY}
+          width={focusLabelWidth}
+          height={20}
+          rx={4}
+          fill="rgba(255,255,255,0.94)"
+          stroke="rgba(27, 42, 74, 0.22)"
+        />
+        <text x={focusLabelX + 6} y={focusLabelY + 14} fontSize="18" fill="#1B2A4A">{focusLabel}</text>
 
         <line x1={focusX} y1={yHigh} x2={focusX} y2={yLow} stroke={activeBand?.stroke || '#1B2A4A'} strokeWidth="2.4" />
         <circle cx={focusX} cy={yHigh} r="3.2" fill={activeBand?.stroke || '#1B2A4A'} />
         <circle cx={focusX} cy={yLow} r="3.2" fill={activeBand?.stroke || '#1B2A4A'} />
-        <text x={focusX + 9} y={Math.max(padding.top + 14, yHigh - 8)} fontSize="15" fill={activeBand?.stroke || '#1B2A4A'}>
-          {focusLow.toFixed(2)}x to {focusHigh.toFixed(2)}x
+        <rect
+          x={rangeLabelX}
+          y={rangeLabelY}
+          width={rangeLabelWidth}
+          height={20}
+          rx={4}
+          fill="rgba(255,255,255,0.94)"
+          stroke="rgba(27, 42, 74, 0.22)"
+        />
+        <text x={rangeLabelX + 6} y={rangeLabelY + 14} fontSize="18" fill={activeBand?.stroke || '#1B2A4A'}>
+          {rangeLabel}
         </text>
       </svg>
 
@@ -8385,14 +8411,14 @@ const PortfolioFutureForecastSection = () => {
 
       <div className="interactive-block">
         <div className="block-header">
-          <span className="block-title">Single-Fund NAV Forecast: Narrowing The Funnel Over Time</span>
+          <span className="block-title">NAV Forecasting: Narrowing the Cone of Outcomes</span>
           <span className="block-subtitle">X-axis is time (15 years), Y-axis is possible NAV outcome range</span>
         </div>
 
         <div className="portfolio-funnel-story-grid">
           <div className="portfolio-funnel-left-rail">
             <PortfolioForecastBandChart
-              title={`Forecast Funnel (Step ${step} of 5)`}
+              title={`Forecast Funnel: RVPI Ranges Over Time (Step ${step} of 5)`}
               subtitle={stepTitles[step - 1]}
               bands={[...benchmarkBands, ...pathwayBands]}
               lineSeries={[...benchmarkLines, ...pathwayLines]}
