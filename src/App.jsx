@@ -108,6 +108,34 @@ const WhatWeDidntCover = ({ items = [] }) => (
   </div>
 );
 
+const NuanceDisclosure = ({ title = 'Nuance', summary = 'Optional detail for readers who want more context.', children }) => {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className={`nuance-disclosure ${open ? 'open' : ''}`}>
+      <button
+        type="button"
+        className="nuance-disclosure-trigger"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-expanded={open}
+      >
+        <span className="nuance-disclosure-left">
+          <span className="nuance-disclosure-kicker">Nuance</span>
+          <span className="nuance-disclosure-title">{title}</span>
+          <span className="nuance-disclosure-summary">{summary}</span>
+        </span>
+        <span className="nuance-disclosure-action">{open ? 'Hide' : 'Learn more'}</span>
+      </button>
+
+      {open && (
+        <div className="nuance-disclosure-panel" role="note" aria-label={`${title} nuance detail`}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const SECTION_LINKS = [
   { id: 'hero-baseline', label: 'Gross Baseline' },
   { id: 'why-matters', label: 'Why This Matters' },
@@ -3648,6 +3676,10 @@ const ExpensesSection = ({
       label: idx === 0 ? `~${drawDelayQuarters}q shift` : undefined
     }));
   }, [lineOfCreditAnalysis.callTimingData, drawDelayQuarters]);
+  const locBackfireNow =
+    (lineOfCreditAnalysis.netIRRNoLine - lineRate) * 10000 < 0 &&
+    lineOfCreditAnalysis.irrLiftBps <= 0 &&
+    lineOfCreditAnalysis.tvpiDrag < 0;
 
   return (
     <section id="fund-expenses" className="content-section">
@@ -4033,6 +4065,23 @@ const ExpensesSection = ({
               {lineOfCreditAnalysis.irrLiftBps.toFixed(0)} bps
             </strong>.
           </p>
+
+          <NuanceDisclosure
+            title="Final Thought: When A Subscription Line Can Backfire"
+            summary="Try this: reset settings, then drag Gross MOIC to the far left."
+          >
+            At very low return scenarios, the baseline no-LOC net IRR can fall below the all-in
+            borrowing cost. That means the fund is effectively borrowing at{' '}
+            <strong>{formatPercent(lineRate)}</strong> to finance assets earning less.
+            <br /><br />
+            In that setup, TVPI still declines from interest expense, and IRR can also deteriorate.
+            {locBackfireNow ? (
+              <>
+                <br /><br />
+                <strong>Current state:</strong> this run is already in a backfire zone where LOC hurts both IRR and TVPI.
+              </>
+            ) : null}
+          </NuanceDisclosure>
         </div>
       </section>
 
@@ -4049,8 +4098,8 @@ const ExpensesSection = ({
 
 const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
   const NON_CARRY_DRAG_MULTIPLE = 0.20;
-  const PRE_CARRY_IRR_MIN = 0.0;
-  const PRE_CARRY_IRR_MAX = 0.5;
+  const GROSS_MOIC_MIN = 1.0;
+  const GROSS_MOIC_MAX = 3.5;
   const PRE_CARRY_IRR_STEP = 0.0025;
   const DEFAULTS = {
     grossMOIC: BASELINE_GROSS_TVPI,
@@ -4067,13 +4116,15 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
   const [holdPeriod, setHoldPeriod] = useState(DEFAULTS.holdPeriod);
   const impliedPreCarryNetMultiple = Math.max(1, grossMOIC - NON_CARRY_DRAG_MULTIPLE);
   const preCarryNetIRRFromGross = Math.pow(impliedPreCarryNetMultiple, 1 / holdPeriod) - 1;
-  const clampedPreCarryNetIRR = Math.max(PRE_CARRY_IRR_MIN, Math.min(PRE_CARRY_IRR_MAX, preCarryNetIRRFromGross));
+  const preCarryIrrMin = Math.pow(Math.max(1, GROSS_MOIC_MIN - NON_CARRY_DRAG_MULTIPLE), 1 / holdPeriod) - 1;
+  const preCarryIrrMax = Math.pow(Math.max(1, GROSS_MOIC_MAX - NON_CARRY_DRAG_MULTIPLE), 1 / holdPeriod) - 1;
+  const clampedPreCarryNetIRR = Math.max(preCarryIrrMin, Math.min(preCarryIrrMax, preCarryNetIRRFromGross));
 
   const handlePreCarryNetIRRChange = (nextIrr) => {
-    const clamped = Math.max(PRE_CARRY_IRR_MIN, Math.min(PRE_CARRY_IRR_MAX, nextIrr));
+    const clamped = Math.max(preCarryIrrMin, Math.min(preCarryIrrMax, nextIrr));
     const impliedPreCarryMultiple = Math.pow(1 + clamped, holdPeriod);
     const impliedGross = impliedPreCarryMultiple + NON_CARRY_DRAG_MULTIPLE;
-    setGrossMOIC(Math.max(1.0, Math.min(3.5, impliedGross)));
+    setGrossMOIC(Math.max(GROSS_MOIC_MIN, Math.min(GROSS_MOIC_MAX, impliedGross)));
   };
 
   const resetCarry = () => {
@@ -4228,8 +4279,8 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
           <Slider
             value={clampedPreCarryNetIRR}
             onChange={handlePreCarryNetIRRChange}
-            min={PRE_CARRY_IRR_MIN}
-            max={PRE_CARRY_IRR_MAX}
+            min={preCarryIrrMin}
+            max={preCarryIrrMax}
             step={PRE_CARRY_IRR_STEP}
             label="Fund Net IRR (Pre-Carry)"
             format={(v) => formatPercent(v, 1)}
@@ -4419,6 +4470,16 @@ const WaterfallComparisonSection = () => {
         For this guide, we keep the focus on timing only and avoid forcing a noisy interim IRR model
         here. The more advanced accrued-carry mechanics are included in the conclusion notes.
       </p>
+
+      <NuanceDisclosure
+        title="Final Thought: Clawback Reality"
+        summary="Timing differences can still leave lasting LP economics effects in practice."
+      >
+        While clawback is intended to reduce differences between American and European waterfalls,
+        in practice any amount clawed back from the GP is usually reduced by taxes already paid by
+        the GP. So carry paid early under an American waterfall and clawed back later may not fully
+        make LPs whole.
+      </NuanceDisclosure>
     </section>
   );
 };
@@ -4613,6 +4674,15 @@ const UnderinvestingSection = ({
           </div>
         </div>
       </div>
+
+      <NuanceDisclosure
+        title="Final Thought: Undrawn Capital"
+        summary="Under-investing can hurt even more if LPs cannot redeploy idle capital efficiently."
+      >
+        Some LPs cannot deploy committed but undrawn capital productively elsewhere. In those cases,
+        under-investing can leave capital parked in cash-like instruments, which may further reduce
+        effective net IRR versus the modeled base case.
+      </NuanceDisclosure>
     </section>
   );
 };
@@ -6510,8 +6580,6 @@ const PortfolioLayeringSection = ({ globalGrossMultiple, onGrossMultipleChange }
 
   const seriesLayeredNav = layered.years.map((row) => row.navM);
   const seriesSingleNav = single.years.map((row) => row.navM);
-  const seriesCalled = layered.years.map((row) => row.calledM);
-  const seriesDist = layered.years.map((row) => row.distM);
   const yearLabels = layered.years.map((row) => `Yr ${row.year}`);
   const vintageNavSeries = useMemo(() => {
     return Array.from({ length: commitmentYears }, (_, vintage) => {
@@ -6619,22 +6687,8 @@ const PortfolioLayeringSection = ({ globalGrossMultiple, onGrossMultipleChange }
           Each light-blue curve is one vintage's NAV path. The dark-green line is the point-by-point sum of all those curves.
         </p>
 
-        <h3 className="chart-title">Layered Program: Called Capital vs Cumulative Distributions</h3>
-        <ComparisonChart
-          seriesA={seriesCalled}
-          seriesB={seriesDist}
-          labelA="Called Capital"
-          labelB="Distributions"
-          xLabels={yearLabels}
-          xTickStep={2}
-          yFormatter={(v) => formatCurrency(v * 1e6, 0)}
-          colorA="#1B2A4A"
-          colorB="#9AB8D8"
-          height={250}
-        />
-
         <p className="portfolio-inline-note">
-          Keeping commitments active each year is what allows NAV to flatten toward a steady state, but it takes time.
+          Keeping commitments active each year is what allows total NAV to flatten toward a steady state, but it takes time.
           Later in this tool, we can look at ways to achieve a target exposure faster, or adjust an existing portfolio
           downward rapidly through the use of other investment types like secondaries and direct equity.
         </p>
@@ -8437,6 +8491,90 @@ export default function App() {
         .content-section em {
           color: #1B2A4A;
           font-style: normal;
+        }
+
+        .nuance-disclosure {
+          margin: 10px 0 18px;
+        }
+
+        @media (min-width: 1280px) {
+          .nuance-disclosure {
+            max-width: 620px;
+          }
+        }
+
+        .nuance-disclosure-trigger {
+          width: 100%;
+          border: 1px solid #D6DFEC;
+          background: linear-gradient(180deg, #FBFDFF 0%, #F4F8FD 100%);
+          border-radius: 12px;
+          padding: 10px 12px;
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 10px;
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .nuance-disclosure-trigger:hover {
+          border-color: #B9C8DE;
+        }
+
+        .nuance-disclosure-left {
+          display: grid;
+          gap: 3px;
+          min-width: 0;
+        }
+
+        .nuance-disclosure-kicker {
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 1px;
+          color: #607189;
+          font-weight: 600;
+        }
+
+        .nuance-disclosure-title {
+          font-size: 14px;
+          line-height: 1.25;
+          color: #1B2A4A;
+          font-weight: 600;
+        }
+
+        .nuance-disclosure-summary {
+          font-size: 12px;
+          color: #5D6880;
+          line-height: 1.4;
+        }
+
+        .nuance-disclosure-action {
+          font-size: 11px;
+          color: #1B2A4A;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.7px;
+          border: 1px solid #CFD7E5;
+          border-radius: 999px;
+          padding: 5px 10px;
+          white-space: nowrap;
+          background: #ffffff;
+        }
+
+        .nuance-disclosure-panel {
+          border: 1px solid #D6DFEC;
+          border-top: none;
+          border-radius: 0 0 12px 12px;
+          background: #FBFDFF;
+          padding: 11px 12px 12px;
+          font-size: 13px;
+          line-height: 1.5;
+          color: #4F5B72;
+        }
+
+        .nuance-disclosure.open .nuance-disclosure-trigger {
+          border-radius: 12px 12px 0 0;
+          border-bottom-color: #E5EBF4;
         }
 
         /* Interactive Blocks */
