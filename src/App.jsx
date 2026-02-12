@@ -1711,6 +1711,308 @@ const SingleFundContribNavChart = ({ data, height = 245, xTickStep = 1 }) => {
   return <canvas ref={canvasRef} className="comparison-canvas single-fund-combo-canvas" style={{ width: '100%', height }} />;
 };
 
+const parseRvpiCsv = (text) => {
+  const cleaned = (text || '').replace(/^\uFEFF/, '').trim();
+  if (!cleaned) return null;
+  const rows = cleaned
+    .split(/\r?\n/)
+    .map((line) => line.split(','))
+    .filter((cols) => cols.length > 1);
+  if (rows.length < 2) return null;
+
+  const header = rows[0];
+  const quarterHeaders = header.slice(1).map((value, idx) => {
+    const n = Number(String(value || '').trim());
+    return Number.isFinite(n) && n > 0 ? n : idx + 1;
+  });
+
+  const lines = [];
+  const valuesByQuarter = new Map();
+  let maxQuarter = 0;
+  let maxValue = 0;
+
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const vintage = String(row[0] || '').trim();
+    if (!vintage) continue;
+    const points = [];
+    for (let c = 1; c < row.length; c++) {
+      const raw = String(row[c] ?? '').trim();
+      if (!raw) continue;
+      const value = Number(raw);
+      if (!Number.isFinite(value)) continue;
+      const quarter = quarterHeaders[c - 1] || c;
+      points.push({ quarter, value });
+      maxQuarter = Math.max(maxQuarter, quarter);
+      maxValue = Math.max(maxValue, value);
+      if (!valuesByQuarter.has(quarter)) valuesByQuarter.set(quarter, []);
+      valuesByQuarter.get(quarter).push(value);
+    }
+    if (points.length > 1) lines.push({ points });
+  }
+
+  if (!lines.length) return null;
+
+  const medianTrend = [];
+  for (let q = 1; q <= maxQuarter; q++) {
+    const values = (valuesByQuarter.get(q) || []).slice().sort((a, b) => a - b);
+    if (!values.length) continue;
+    const mid = Math.floor(values.length / 2);
+    const median = values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
+    medianTrend.push({ quarter: q, value: median });
+  }
+
+  return {
+    lines,
+    medianTrend,
+    maxQuarter,
+    maxValue: Math.max(1.2, maxValue)
+  };
+};
+
+const RvpiVintageTrendChart = ({ height = 300 }) => {
+  const canvasRef = useRef(null);
+  const [rvpiData, setRvpiData] = useState(null);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const base = (import.meta && import.meta.env && import.meta.env.BASE_URL) || '/';
+      const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+      const candidates = [
+        `${normalizedBase}RVPI_Data.csv`,
+        `${normalizedBase}rvpi_data.csv`,
+        '/RVPI_Data.csv',
+        '/rvpi_data.csv'
+      ];
+      for (const path of candidates) {
+        try {
+          const res = await fetch(path, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const text = await res.text();
+          const parsed = parseRvpiCsv(text);
+          if (parsed && parsed.lines.length) {
+            if (active) {
+              setRvpiData(parsed);
+              setLoadError('');
+            }
+            return;
+          }
+        } catch (_) {
+          // Try next candidate path.
+        }
+      }
+      if (active) {
+        setRvpiData(null);
+        setLoadError('RVPI dataset not found. Expected RVPI_Data.csv or rvpi_data.csv at site root.');
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !rvpiData) return undefined;
+    const ctx = canvas.getContext('2d');
+    let rafId = null;
+    const reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const DURATION_MS = 4600;
+    let start = null;
+
+    const drawPartial = (points, maxQuarterFloat, options = {}) => {
+      if (!points || points.length < 2) return;
+      const {
+        color = '#4A7BA7',
+        lineWidth = 1.15,
+        alpha = 0.2,
+        dashed = false
+      } = options;
+      const sorted = points.slice().sort((a, b) => a.quarter - b.quarter);
+      const firstVisible = sorted.find((p) => p.quarter <= maxQuarterFloat);
+      if (!firstVisible) return;
+
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = lineWidth;
+      ctx.globalAlpha = alpha;
+      if (dashed) ctx.setLineDash([5, 4]);
+      else ctx.setLineDash([]);
+      ctx.beginPath();
+      ctx.moveTo(xForQuarter(firstVisible.quarter), yForValue(firstVisible.value));
+
+      for (let i = 1; i < sorted.length; i++) {
+        const prev = sorted[i - 1];
+        const curr = sorted[i];
+        if (curr.quarter <= maxQuarterFloat) {
+          ctx.lineTo(xForQuarter(curr.quarter), yForValue(curr.value));
+          continue;
+        }
+        if (prev.quarter < maxQuarterFloat && curr.quarter > maxQuarterFloat) {
+          const t = (maxQuarterFloat - prev.quarter) / (curr.quarter - prev.quarter);
+          const y = lerp(prev.value, curr.value, t);
+          ctx.lineTo(xForQuarter(maxQuarterFloat), yForValue(y));
+        }
+        break;
+      }
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+    };
+
+    const draw = (timestamp = 0) => {
+      const dpr = window.devicePixelRatio || 1;
+      const width = canvas.offsetWidth;
+      const h = canvas.offsetHeight;
+      canvas.width = width * dpr;
+      canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, h);
+
+      const padding = { top: 30, right: 24, bottom: 50, left: 58 };
+      const chartWidth = width - padding.left - padding.right;
+      const chartHeight = h - padding.top - padding.bottom;
+      const maxQuarter = Math.max(1, rvpiData.maxQuarter);
+      const maxY = Math.max(1.4, Math.ceil(rvpiData.maxValue * 1.12 * 10) / 10);
+      const minY = 0;
+      const yRange = Math.max(1e-9, maxY - minY);
+
+      xForQuarter = (q) => padding.left + ((q - 1) / Math.max(1, maxQuarter - 1)) * chartWidth;
+      yForValue = (v) => padding.top + ((maxY - v) / yRange) * chartHeight;
+
+      ctx.strokeStyle = '#E8EDF6';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 5; i++) {
+        const y = padding.top + (i / 5) * chartHeight;
+        ctx.beginPath();
+        ctx.moveTo(padding.left, y);
+        ctx.lineTo(width - padding.right, y);
+        ctx.stroke();
+        const tickVal = maxY - (i / 5) * yRange;
+        ctx.fillStyle = '#7A8397';
+        ctx.font = '10px Helvetica Neue';
+        ctx.textAlign = 'right';
+        ctx.fillText(`${tickVal.toFixed(1)}x`, padding.left - 8, y + 4);
+      }
+
+      const quarterStride = maxQuarter > 40 ? 8 : 4;
+      for (let q = 1; q <= maxQuarter; q += quarterStride) {
+        const x = xForQuarter(q);
+        ctx.strokeStyle = '#F2F5FA';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(x, padding.top);
+        ctx.lineTo(x, h - padding.bottom);
+        ctx.stroke();
+        ctx.fillStyle = '#7A8397';
+        ctx.font = '10px Helvetica Neue';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Yr ${((q - 1) / 4).toFixed(0)}`, x, h - 28);
+      }
+
+      const progress = reduceMotion || start === null
+        ? 1
+        : Math.max(0, Math.min(1, (timestamp - start) / DURATION_MS));
+      const maxQuarterFloat = 1 + progress * (maxQuarter - 1);
+
+      rvpiData.lines.forEach((line) => {
+        drawPartial(line.points, maxQuarterFloat, {
+          color: '#3F6C97',
+          lineWidth: 1.2,
+          alpha: 0.26
+        });
+      });
+      drawPartial(rvpiData.medianTrend, maxQuarterFloat, {
+        color: '#1B2A4A',
+        lineWidth: 2.4,
+        alpha: 0.98,
+        dashed: true
+      });
+
+      if (progress > 0.96 && rvpiData.medianTrend.length) {
+        const last = rvpiData.medianTrend[rvpiData.medianTrend.length - 1];
+        const lx = xForQuarter(last.quarter);
+        const ly = yForValue(last.value);
+        const label = 'Aggregate trend (median)';
+        ctx.font = '600 11px Helvetica Neue';
+        const lw = ctx.measureText(label).width + 10;
+        const bx = Math.max(padding.left + 4, Math.min(width - padding.right - lw, lx - lw - 8));
+        const by = Math.max(padding.top + 4, ly - 16);
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.fillRect(bx, by, lw, 14);
+        ctx.strokeStyle = 'rgba(27,42,74,0.3)';
+        ctx.strokeRect(bx, by, lw, 14);
+        ctx.fillStyle = '#1B2A4A';
+        ctx.textAlign = 'left';
+        ctx.fillText(label, bx + 5, by + 10);
+      }
+
+      ctx.fillStyle = '#5F687A';
+      ctx.font = '11px Helvetica Neue';
+      ctx.textAlign = 'center';
+      ctx.fillText('Quarters Since Vintage Inception', padding.left + chartWidth / 2, h - 10);
+
+      // Inline legend
+      ctx.textAlign = 'left';
+      ctx.font = '11px Helvetica Neue';
+      ctx.fillStyle = '#4A4641';
+      ctx.strokeStyle = '#4A7BA7';
+      ctx.lineWidth = 2;
+      ctx.globalAlpha = 0.6;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, 12);
+      ctx.lineTo(padding.left + 20, 12);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillText('Each vintage RVPI path', padding.left + 26, 16);
+      const secondX = padding.left + 220;
+      ctx.strokeStyle = '#1B2A4A';
+      ctx.lineWidth = 2.4;
+      ctx.setLineDash([6, 4]);
+      ctx.beginPath();
+      ctx.moveTo(secondX, 12);
+      ctx.lineTo(secondX + 20, 12);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillText('Median trend', secondX + 26, 16);
+    };
+
+    let xForQuarter = () => 0;
+    let yForValue = () => 0;
+
+    const animate = (ts) => {
+      if (start === null) start = ts;
+      draw(ts);
+      if (!reduceMotion && ts - start < DURATION_MS + 250) {
+        rafId = requestAnimationFrame(animate);
+      } else {
+        draw(start + DURATION_MS);
+      }
+    };
+
+    rafId = requestAnimationFrame(animate);
+    const onResize = () => {
+      start = null;
+      if (rafId !== null) cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(animate);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      window.removeEventListener('resize', onResize);
+      if (rafId !== null) cancelAnimationFrame(rafId);
+    };
+  }, [rvpiData]);
+
+  if (loadError) {
+    return <p className="portfolio-inline-note">{loadError}</p>;
+  }
+
+  return <canvas ref={canvasRef} className="comparison-canvas rvpi-context-canvas" style={{ width: '100%', height }} />;
+};
+
 // ============================================================================
 // SECTION COMPONENTS
 // ============================================================================
@@ -7768,7 +8070,7 @@ const PortfolioForecastBandChart = ({
               stroke="#E4EAF3"
               strokeWidth="1"
             />
-            <text x={padding.left - 8} y={yFor(tick) + 4} textAnchor="end" fontSize="11" fill="#6B7488">
+            <text x={padding.left - 8} y={yFor(tick) + 5} textAnchor="end" fontSize="16" fill="#6B7488">
               {tick.toFixed(1)}x
             </text>
           </g>
@@ -7784,7 +8086,7 @@ const PortfolioForecastBandChart = ({
               stroke="#F1F4FA"
               strokeWidth="1"
             />
-            <text x={xFor(year)} y={height - 12} textAnchor="middle" fontSize="11" fill="#6B7488">
+            <text x={xFor(year)} y={height - 12} textAnchor="middle" fontSize="16" fill="#6B7488">
               Yr {year}
             </text>
           </g>
@@ -7811,12 +8113,12 @@ const PortfolioForecastBandChart = ({
         ))}
 
         <line x1={focusX} y1={padding.top} x2={focusX} y2={padding.top + plotHeight} stroke="#1B2A4A" strokeWidth="1.2" strokeDasharray="5 4" />
-        <text x={focusX + 5} y={padding.top + 12} fontSize="11" fill="#1B2A4A">Focus: Yr {focus}</text>
+        <text x={focusX + 7} y={padding.top + 15} fontSize="15" fill="#1B2A4A">Focus: Yr {focus}</text>
 
         <line x1={focusX} y1={yHigh} x2={focusX} y2={yLow} stroke={activeBand?.stroke || '#1B2A4A'} strokeWidth="2.4" />
         <circle cx={focusX} cy={yHigh} r="3.2" fill={activeBand?.stroke || '#1B2A4A'} />
         <circle cx={focusX} cy={yLow} r="3.2" fill={activeBand?.stroke || '#1B2A4A'} />
-        <text x={focusX + 8} y={Math.max(padding.top + 12, yHigh - 6)} fontSize="11" fill={activeBand?.stroke || '#1B2A4A'}>
+        <text x={focusX + 9} y={Math.max(padding.top + 14, yHigh - 8)} fontSize="15" fill={activeBand?.stroke || '#1B2A4A'}>
           {focusLow.toFixed(2)}x to {focusHigh.toFixed(2)}x
         </text>
       </svg>
@@ -8061,8 +8363,24 @@ const PortfolioFutureForecastSection = () => {
         range to a practical planning band.
       </p>
       <p>
-        Scroll through the five steps below. The chart updates as each step comes into view so the
-        range tightens from "anything can happen" toward a planning-grade range grounded in data.
+        To get a practical starting point, let&apos;s look at data internal to Pathway. The figure below
+        plots aggregate RVPI by quarter for every vintage from 1993-2022. The underlying data
+        represents a diversified PE portfolio of primary fund investments. You will see that each
+        vintage tends to follow a pattern: starting around cost, building in value, then declining
+        as portfolio companies are realized. Any given vintage year is affected by factors including
+        the macro environment and Pathway&apos;s own diversification choices, but this still provides a
+        reasonable baseline for how a diversified vintage of PE investments can progress.
+      </p>
+      <div className="interactive-block portfolio-rvpi-context-block">
+        <div className="block-header">
+          <span className="block-title">Observed RVPI Paths Across Pathway Primary Vintages</span>
+          <span className="block-subtitle">Each line is one vintage path; dashed navy line shows aggregate median trend</span>
+        </div>
+        <RvpiVintageTrendChart height={320} />
+      </div>
+      <p>
+        Now let's think about how we can use this rich data to project future portfolio NAV outcomes.
+        Scroll through the five steps below.
       </p>
 
       <div className="interactive-block">
@@ -10301,6 +10619,10 @@ export default function App() {
           border-radius: 10px;
           background: #F8FAFD;
           padding: 11px 12px;
+        }
+
+        .portfolio-rvpi-context-block {
+          margin: 10px 0 12px;
         }
 
         .portfolio-funnel-placeholder-title,
