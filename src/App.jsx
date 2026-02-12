@@ -147,6 +147,7 @@ const PORTFOLIO_SECTION_LINKS = [
   { id: 'portfolio-strategies', label: 'Strategy Curves' },
   { id: 'portfolio-targeting', label: 'Target Exposure Planning' },
   { id: 'portfolio-types', label: 'Investment Type Mix' },
+  { id: 'portfolio-future-forecast', label: 'Future Forecast Funnel' },
   { id: 'portfolio-riffs', label: 'Implementation Riffs' }
 ];
 
@@ -1162,6 +1163,136 @@ const LocTimingColumnChart = ({
   }, [data, xTickStep, shiftArrows, animateShiftArrows]);
 
   return <canvas ref={canvasRef} className="comparison-canvas loc-timing-canvas" style={{ width: '100%', height }} />;
+};
+
+const SingleFundContribNavChart = ({ data, height = 245, xTickStep = 1 }) => {
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !data || data.length === 0) return undefined;
+
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.offsetWidth;
+    const h = canvas.offsetHeight;
+
+    canvas.width = width * dpr;
+    canvas.height = h * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, width, h);
+
+    const padding = { top: 44, bottom: 52, left: 62, right: 22 };
+    const chartWidth = width - padding.left - padding.right;
+    const chartHeight = h - padding.top - padding.bottom;
+    const n = data.length;
+    const bandWidth = chartWidth / Math.max(1, n);
+    const barWidth = Math.max(4, Math.min(18, bandWidth * 0.56));
+
+    const maxValue = Math.max(
+      1,
+      ...data.map((d) => Math.max(d.contributionM || 0, d.navM || 0))
+    ) * 1.12;
+    const yForValue = (value) => padding.top + (1 - value / maxValue) * chartHeight;
+    const zeroY = yForValue(0);
+
+    // Grid and y-axis labels
+    ctx.strokeStyle = '#E8E6E1';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= 4; i++) {
+      const y = padding.top + (i / 4) * chartHeight;
+      ctx.beginPath();
+      ctx.moveTo(padding.left, y);
+      ctx.lineTo(width - padding.right, y);
+      ctx.stroke();
+
+      const valM = maxValue * (1 - i / 4);
+      ctx.fillStyle = '#9A9690';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'right';
+      ctx.fillText(formatCurrency(valM * 1e6, 0), padding.left - 8, y + 4);
+    }
+
+    // Contribution bars
+    data.forEach((d, i) => {
+      const centerX = padding.left + (i + 0.5) * bandWidth;
+      const x = centerX - barWidth / 2;
+      const y = yForValue(Math.max(0, d.contributionM || 0));
+      const barHeight = Math.max(0, zeroY - y);
+
+      ctx.fillStyle = '#1B2A4A';
+      ctx.globalAlpha = 0.78;
+      ctx.fillRect(x, y, barWidth, barHeight);
+      ctx.globalAlpha = 1;
+    });
+
+    // NAV line
+    ctx.strokeStyle = '#2D6B4F';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    data.forEach((d, i) => {
+      const x = padding.left + (i + 0.5) * bandWidth;
+      const y = yForValue(Math.max(0, d.navM || 0));
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+
+    // NAV points
+    data.forEach((d, i) => {
+      const x = padding.left + (i + 0.5) * bandWidth;
+      const y = yForValue(Math.max(0, d.navM || 0));
+      ctx.fillStyle = '#2D6B4F';
+      ctx.beginPath();
+      ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // End label for NAV
+    const last = data[data.length - 1];
+    const endX = padding.left + (n - 0.5) * bandWidth;
+    const endY = yForValue(Math.max(0, last.navM || 0));
+    ctx.font = '600 10px system-ui';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#2D6B4F';
+    ctx.fillText(`NAV ${formatCurrency((last.navM || 0) * 1e6, 0)}`, Math.min(width - padding.right - 80, endX + 8), endY - 8);
+
+    // Legend
+    let legendX = padding.left;
+    const legendY = 12;
+    const drawLegendBox = (color, text, asLine = false) => {
+      if (asLine) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.moveTo(legendX, legendY + 2);
+        ctx.lineTo(legendX + 20, legendY + 2);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = color;
+        ctx.fillRect(legendX, legendY - 2, 18, 7);
+      }
+      ctx.fillStyle = '#4A4641';
+      ctx.font = '11px system-ui';
+      ctx.textAlign = 'left';
+      ctx.fillText(text, legendX + 24, legendY + 5);
+      legendX += 24 + ctx.measureText(text).width + 20;
+    };
+    drawLegendBox('#1B2A4A', 'Annual LP Contributions');
+    drawLegendBox('#2D6B4F', 'Expected NAV', true);
+
+    // X-axis labels
+    for (let i = 0; i < n; i++) {
+      if (i !== 0 && i !== n - 1 && i % xTickStep !== 0) continue;
+      const x = padding.left + (i + 0.5) * bandWidth;
+      ctx.fillStyle = '#9A9690';
+      ctx.font = '10px system-ui';
+      ctx.textAlign = 'center';
+      ctx.fillText(data[i].label || `Yr ${i}`, x, h - padding.bottom + 19);
+    }
+  }, [data, xTickStep]);
+
+  return <canvas ref={canvasRef} className="comparison-canvas single-fund-combo-canvas" style={{ width: '100%', height }} />;
 };
 
 // ============================================================================
@@ -5961,9 +6092,9 @@ const PortfolioSingleFundSection = () => {
   const [grossMultiple, setGrossMultiple] = useState(DEFAULTS.grossMultiple);
   const fundLife = 12;
   const investmentPeriod = 5;
-  const [selectedYear, setSelectedYear] = useState(DEFAULTS.selectedYear);
+  const [selectedYearRaw, setSelectedYearRaw] = useState(DEFAULTS.selectedYear);
   const [playing, setPlaying] = useState(true);
-  const yearSliderProgress = (selectedYear / fundLife) * 100;
+  const yearSliderProgress = (selectedYearRaw / fundLife) * 100;
 
   const annualCurve = useMemo(
     () => buildAnnualGrossCurve(fundLife, Math.min(investmentPeriod, Math.max(1, fundLife - 1)), grossMultiple),
@@ -5993,16 +6124,16 @@ const PortfolioSingleFundSection = () => {
   }, [annualCurve, commitmentM]);
 
   useEffect(() => {
-    if (selectedYear > fundLife) {
-      setSelectedYear(fundLife);
+    if (selectedYearRaw > fundLife) {
+      setSelectedYearRaw(fundLife);
     }
-  }, [selectedYear, fundLife]);
+  }, [selectedYearRaw, fundLife]);
 
   useEffect(() => {
     if (!playing) return undefined;
     const timer = window.setInterval(() => {
-      setSelectedYear((prev) => (prev >= fundLife ? 0 : prev + 1));
-    }, 950);
+      setSelectedYearRaw((prev) => (prev >= fundLife ? 0 : Math.min(fundLife, prev + 0.05)));
+    }, 45);
     return () => window.clearInterval(timer);
   }, [playing, fundLife]);
 
@@ -6015,7 +6146,7 @@ const PortfolioSingleFundSection = () => {
       range: 'Fund close (Yr 0)',
       lpImpact: 'LP signs commitment; capital is reserved for future calls.',
       cashDirection: 'neutral',
-      active: selectedYear === 0
+      active: selectedYearRaw < 1
     },
     {
       key: 'deploy',
@@ -6023,7 +6154,7 @@ const PortfolioSingleFundSection = () => {
       range: `Yr 1-${investmentPeriod}`,
       lpImpact: 'GP calls capital as investments are executed. LP sends cash to the fund.',
       cashDirection: 'to-fund',
-      active: selectedYear >= 1 && selectedYear <= investmentPeriod
+      active: selectedYearRaw >= 1 && selectedYearRaw < growthStartYear
     },
     {
       key: 'grow',
@@ -6031,7 +6162,7 @@ const PortfolioSingleFundSection = () => {
       range: `Yr ${growthStartYear}-${Math.max(growthStartYear, harvestStartYear - 1)}`,
       lpImpact: 'NAV builds from value creation. Distributions start but are usually not dominant yet.',
       cashDirection: 'mixed',
-      active: selectedYear >= growthStartYear && selectedYear < harvestStartYear
+      active: selectedYearRaw >= growthStartYear && selectedYearRaw < harvestStartYear
     },
     {
       key: 'harvest',
@@ -6039,14 +6170,29 @@ const PortfolioSingleFundSection = () => {
       range: `Yr ${harvestStartYear}-${fundLife}`,
       lpImpact: 'Assets are sold and cash returns accelerate. LP generally receives net cash back.',
       cashDirection: 'to-lp',
-      active: selectedYear >= harvestStartYear
+      active: selectedYearRaw >= harvestStartYear
     }
   ];
   const activeStage = stages.find((stage) => stage.active) || stages[0];
-  const selectedRow = annualRows[selectedYear] || annualRows[0];
+  const lowerIdx = Math.max(0, Math.min(fundLife, Math.floor(selectedYearRaw)));
+  const upperIdx = Math.max(0, Math.min(fundLife, Math.ceil(selectedYearRaw)));
+  const blend = selectedYearRaw - lowerIdx;
+  const lowerRow = annualRows[lowerIdx] || annualRows[0];
+  const upperRow = annualRows[upperIdx] || lowerRow;
+  const selectedRow = {
+    year: selectedYearRaw,
+    calledToDateM: lerp(lowerRow.calledToDateM, upperRow.calledToDateM, blend),
+    distributedToDateM: lerp(lowerRow.distributedToDateM, upperRow.distributedToDateM, blend),
+    navM: lerp(lowerRow.navM, upperRow.navM, blend),
+    tvpi: lerp(lowerRow.tvpi, upperRow.tvpi, blend),
+    capitalCallThisYearM: lerp(lowerRow.capitalCallThisYearM, upperRow.capitalCallThisYearM, blend),
+    distributionThisYearM: lerp(lowerRow.distributionThisYearM, upperRow.distributionThisYearM, blend),
+    netCashThisYearM: lerp(lowerRow.netCashThisYearM, upperRow.netCashThisYearM, blend)
+  };
   const finalRow = annualRows[annualRows.length - 1];
   const peakNavM = Math.max(...annualRows.map((row) => row.navM));
   const peakNavYear = annualRows.find((row) => row.navM === peakNavM)?.year ?? 0;
+  const selectedYearLabel = selectedYearRaw.toFixed(1);
   const laneDirection = selectedRow.netCashThisYearM > 2
     ? 'to-lp'
     : selectedRow.netCashThisYearM < -2
@@ -6059,11 +6205,16 @@ const PortfolioSingleFundSection = () => {
     harvest: ['companies-fund', 'fund-lp', 'fund-gp']
   };
   const activeFlows = flowByStage[activeStage.key] || [];
+  const singleFundContribNavSeries = annualRows.map((row) => ({
+    label: `Yr ${row.year}`,
+    contributionM: Math.max(0, row.capitalCallThisYearM),
+    navM: Math.max(0, row.navM)
+  }));
 
   const resetSection = () => {
     setCommitmentM(DEFAULTS.commitmentM);
     setGrossMultiple(DEFAULTS.grossMultiple);
-    setSelectedYear(DEFAULTS.selectedYear);
+    setSelectedYearRaw(DEFAULTS.selectedYear);
     setPlaying(true);
   };
 
@@ -6103,7 +6254,7 @@ const PortfolioSingleFundSection = () => {
           <div className="portfolio-lifecycle-automation-head">
             <div>
               <div className="portfolio-lifecycle-automation-label">Lifecycle Year</div>
-              <div className="portfolio-lifecycle-year-readout">Year {selectedYear}</div>
+              <div className="portfolio-lifecycle-year-readout">Year {selectedYearLabel}</div>
             </div>
             <div className="portfolio-lifecycle-automation-actions">
               <button
@@ -6124,9 +6275,9 @@ const PortfolioSingleFundSection = () => {
             type="range"
             min={0}
             max={fundLife}
-            step={1}
-            value={selectedYear}
-            onChange={(e) => setSelectedYear(Math.round(Number(e.target.value)))}
+            step={0.01}
+            value={selectedYearRaw}
+            onChange={(e) => setSelectedYearRaw(Number(e.target.value))}
             className="portfolio-lifecycle-year-slider"
             style={{
               background: `linear-gradient(to right, #1B2A4A 0%, #1B2A4A ${yearSliderProgress}%, #D9D5CF ${yearSliderProgress}%, #D9D5CF 100%)`
@@ -6139,19 +6290,19 @@ const PortfolioSingleFundSection = () => {
 
         <div className="metrics-row">
           <MetricCard
-            label={`Year ${selectedYear} Capital Called`}
+            label={`Year ${selectedYearLabel} Capital Called`}
             value={formatCurrency(selectedRow.capitalCallThisYearM * 1e6, 0)}
             subtext={`Cumulative called ${formatCurrency(selectedRow.calledToDateM * 1e6, 0)}`}
             accent="#1B2A4A"
           />
           <MetricCard
-            label={`Year ${selectedYear} Distributions`}
+            label={`Year ${selectedYearLabel} Distributions`}
             value={formatCurrency(selectedRow.distributionThisYearM * 1e6, 0)}
             subtext={`Cumulative distributed ${formatCurrency(selectedRow.distributedToDateM * 1e6, 0)}`}
             accent="#2D6B4F"
           />
           <MetricCard
-            label={`Year ${selectedYear} NAV`}
+            label={`Year ${selectedYearLabel} NAV`}
             value={formatCurrency(selectedRow.navM * 1e6, 0)}
             subtext={`Peak ${formatCurrency(peakNavM * 1e6, 0)} in year ${peakNavYear}`}
             accent="#B5473A"
@@ -6296,16 +6447,27 @@ const PortfolioSingleFundSection = () => {
           </svg>
           <div className="portfolio-flow-caption">
             {laneDirection === 'to-fund'
-              ? `Year ${selectedYear}: LP cash is still predominantly flowing into the fund.`
+              ? `Year ${selectedYearLabel}: LP cash is still predominantly flowing into the fund.`
               : laneDirection === 'to-lp'
-                ? `Year ${selectedYear}: exits dominate and the fund is returning net cash to LPs.`
-                : `Year ${selectedYear}: the fund is in transition, with calls and distributions closer to balance.`}
+                ? `Year ${selectedYearLabel}: exits dominate and the fund is returning net cash to LPs.`
+                : `Year ${selectedYearLabel}: the fund is in transition, with calls and distributions closer to balance.`}
           </div>
         </div>
 
         <p className="portfolio-inline-note">
           By year {fundLife}, this run lands near {finalRow.tvpi.toFixed(2)}x gross value on the original
           commitment, with cumulative distributions of {formatCurrency(finalRow.distributedToDateM * 1e6, 0)}.
+        </p>
+
+        <h3 className="chart-title">Single Fund: Annual LP Contributions vs Expected NAV</h3>
+        <SingleFundContribNavChart
+          data={singleFundContribNavSeries}
+          height={245}
+          xTickStep={1}
+        />
+        <p className="portfolio-inline-note">
+          This chart is intentionally one fund only. In Section 2, we layer many single-fund NAV curves
+          to show how portfolio construction changes the profile.
         </p>
       </div>
     </section>
@@ -6842,6 +7004,547 @@ const PortfolioTypesSection = () => {
   );
 };
 
+const PortfolioForecastBandChart = ({
+  title,
+  subtitle,
+  bands,
+  lineSeries = [],
+  focusYear = 8,
+  horizonYears = 12,
+  maxY = 4
+}) => {
+  const width = 1000;
+  const height = 300;
+  const padding = { top: 20, right: 24, bottom: 36, left: 52 };
+  const plotWidth = width - padding.left - padding.right;
+  const plotHeight = height - padding.top - padding.bottom;
+  const focus = Math.max(0, Math.min(horizonYears, Math.round(focusYear)));
+  const activeBand = bands.find((band) => band.active) || bands[bands.length - 1];
+
+  const xFor = (year) => padding.left + (year / horizonYears) * plotWidth;
+  const yFor = (value) => padding.top + (1 - value / maxY) * plotHeight;
+
+  const buildBandPath = (series) => {
+    if (!series || series.length === 0) return '';
+    const top = series.map((point) => `${xFor(point.year)},${yFor(point.high)}`).join(' L ');
+    const bottom = [...series]
+      .reverse()
+      .map((point) => `${xFor(point.year)},${yFor(point.low)}`)
+      .join(' L ');
+    return `M ${top} L ${bottom} Z`;
+  };
+
+  const buildLinePath = (series) => {
+    if (!series || series.length === 0) return '';
+    return series
+      .map((point, index) => `${index === 0 ? 'M' : 'L'} ${xFor(point.year)} ${yFor(point.value)}`)
+      .join(' ');
+  };
+
+  const focusLow = activeBand?.series?.[focus]?.low ?? 0;
+  const focusHigh = activeBand?.series?.[focus]?.high ?? 0;
+  const focusX = xFor(focus);
+  const yLow = yFor(focusLow);
+  const yHigh = yFor(focusHigh);
+
+  return (
+    <div className="portfolio-funnel-chart-shell">
+      <div className="portfolio-funnel-chart-head">
+        <span className="portfolio-funnel-chart-title">{title}</span>
+        <span className="portfolio-funnel-chart-subtitle">{subtitle}</span>
+      </div>
+
+      <svg className="portfolio-funnel-svg" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title}>
+        {[0, 1, 2, 3, 4].map((tick) => (
+          <g key={`y-${tick}`}>
+            <line
+              x1={padding.left}
+              y1={yFor(tick)}
+              x2={padding.left + plotWidth}
+              y2={yFor(tick)}
+              stroke="#E4EAF3"
+              strokeWidth="1"
+            />
+            <text x={padding.left - 8} y={yFor(tick) + 4} textAnchor="end" fontSize="11" fill="#6B7488">
+              {tick.toFixed(1)}x
+            </text>
+          </g>
+        ))}
+
+        {[0, 2, 4, 6, 8, 10, 12].map((year) => (
+          <g key={`x-${year}`}>
+            <line
+              x1={xFor(year)}
+              y1={padding.top}
+              x2={xFor(year)}
+              y2={padding.top + plotHeight}
+              stroke="#F1F4FA"
+              strokeWidth="1"
+            />
+            <text x={xFor(year)} y={height - 12} textAnchor="middle" fontSize="11" fill="#6B7488">
+              Yr {year}
+            </text>
+          </g>
+        ))}
+
+        {bands.map((band) => (
+          <g key={band.key} opacity={band.visible ? 1 : 0}>
+            <path d={buildBandPath(band.series)} fill={band.fill} />
+            <path d={buildLinePath(band.series.map((point) => ({ year: point.year, value: point.high })))} fill="none" stroke={band.stroke} strokeWidth={band.active ? 2.6 : 1.4} />
+            <path d={buildLinePath(band.series.map((point) => ({ year: point.year, value: point.low })))} fill="none" stroke={band.stroke} strokeWidth={band.active ? 2.6 : 1.4} />
+          </g>
+        ))}
+
+        {lineSeries.map((line) => (
+          <path
+            key={line.key}
+            d={buildLinePath(line.series)}
+            fill="none"
+            stroke={line.color}
+            strokeWidth={line.active ? 2.5 : 1.5}
+            strokeDasharray={line.dashed ? '6 4' : 'none'}
+            opacity={line.visible ? 1 : 0}
+          />
+        ))}
+
+        <line x1={focusX} y1={padding.top} x2={focusX} y2={padding.top + plotHeight} stroke="#1B2A4A" strokeWidth="1.2" strokeDasharray="5 4" />
+        <text x={focusX + 5} y={padding.top + 12} fontSize="11" fill="#1B2A4A">Focus: Yr {focus}</text>
+
+        <line x1={focusX} y1={yHigh} x2={focusX} y2={yLow} stroke={activeBand?.stroke || '#1B2A4A'} strokeWidth="2.4" />
+        <circle cx={focusX} cy={yHigh} r="3.2" fill={activeBand?.stroke || '#1B2A4A'} />
+        <circle cx={focusX} cy={yLow} r="3.2" fill={activeBand?.stroke || '#1B2A4A'} />
+        <text x={focusX + 8} y={Math.max(padding.top + 12, yHigh - 6)} fontSize="11" fill={activeBand?.stroke || '#1B2A4A'}>
+          {focusLow.toFixed(2)}x to {focusHigh.toFixed(2)}x
+        </text>
+      </svg>
+
+      <div className="portfolio-funnel-legend">
+        {bands.filter((band) => band.visible).map((band) => (
+          <div key={band.key} className={`portfolio-funnel-legend-item ${band.active ? 'active' : ''}`}>
+            <span className="swatch" style={{ background: band.fill, borderColor: band.stroke }} />
+            <span>{band.label}</span>
+          </div>
+        ))}
+        {lineSeries.filter((line) => line.visible).map((line) => (
+          <div key={line.key} className={`portfolio-funnel-legend-item ${line.active ? 'active' : ''}`}>
+            <span className="line-swatch" style={{ borderColor: line.color, borderStyle: line.dashed ? 'dashed' : 'solid' }} />
+            <span>{line.label}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+const PortfolioFutureForecastSection = () => {
+  const HORIZON = 12;
+  const MAX_Y = 4.0;
+  const DEFAULTS = {
+    step: 1,
+    focusYear: 8,
+    benchmarkP10: 0.70,
+    benchmarkP90: 2.90,
+    pathwayLow: 0.35,
+    pathwayHigh: 3.20,
+    pathwayP10: 0.95,
+    pathwayP90: 2.60,
+    diversifiedP25: 1.45,
+    diversifiedP75: 2.25
+  };
+
+  const [step, setStep] = useState(DEFAULTS.step);
+  const [focusYear, setFocusYear] = useState(DEFAULTS.focusYear);
+  const [benchmarkP10, setBenchmarkP10] = useState(DEFAULTS.benchmarkP10);
+  const [benchmarkP90, setBenchmarkP90] = useState(DEFAULTS.benchmarkP90);
+  const [pathwayLow, setPathwayLow] = useState(DEFAULTS.pathwayLow);
+  const [pathwayHigh, setPathwayHigh] = useState(DEFAULTS.pathwayHigh);
+  const [pathwayP10, setPathwayP10] = useState(DEFAULTS.pathwayP10);
+  const [pathwayP90, setPathwayP90] = useState(DEFAULTS.pathwayP90);
+  const [diversifiedP25, setDiversifiedP25] = useState(DEFAULTS.diversifiedP25);
+  const [diversifiedP75, setDiversifiedP75] = useState(DEFAULTS.diversifiedP75);
+
+  const years = useMemo(() => Array.from({ length: HORIZON + 1 }, (_, i) => i), []);
+  const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+  const growthCurve = useMemo(() => {
+    const normalizer = 1 - Math.exp(-HORIZON / 4.2);
+    return years.map((year) => (1 - Math.exp(-year / 4.2)) / normalizer);
+  }, [years]);
+
+  const normalized = useMemo(() => {
+    const bLow = clamp(Math.min(benchmarkP10, benchmarkP90 - 0.1), 0.05, MAX_Y - 0.2);
+    const bHigh = clamp(Math.max(benchmarkP90, bLow + 0.1), bLow + 0.1, MAX_Y);
+    const pLow = clamp(Math.min(pathwayLow, pathwayHigh - 0.1), 0.02, MAX_Y - 0.2);
+    const pHigh = clamp(Math.max(pathwayHigh, pLow + 0.1), pLow + 0.1, MAX_Y);
+    const p10 = clamp(Math.min(pathwayP10, pathwayP90 - 0.1), pLow, pHigh - 0.1);
+    const p90 = clamp(Math.max(pathwayP90, p10 + 0.1), p10 + 0.1, pHigh);
+    const d25 = clamp(Math.min(diversifiedP25, diversifiedP75 - 0.1), p10, p90 - 0.1);
+    const d75 = clamp(Math.max(diversifiedP75, d25 + 0.1), d25 + 0.1, p90);
+    return { bLow, bHigh, pLow, pHigh, p10, p90, d25, d75 };
+  }, [benchmarkP10, benchmarkP90, pathwayLow, pathwayHigh, pathwayP10, pathwayP90, diversifiedP25, diversifiedP75]);
+
+  const makeRangeSeries = (lowTerminal, highTerminal, lowPow = 1.15, highPow = 0.95) => {
+    return years.map((year, idx) => {
+      const g = growthCurve[idx];
+      const low = lowTerminal <= 0 ? 0 : lowTerminal * Math.pow(g, lowPow);
+      const high = highTerminal * Math.pow(g, highPow);
+      return { year, low, high };
+    });
+  };
+
+  const makeLineSeries = (targetTerminal, pow = 1.0) => (
+    years.map((year, idx) => ({
+      year,
+      value: targetTerminal * Math.pow(growthCurve[idx], pow)
+    }))
+  );
+
+  const theoretical = useMemo(() => makeRangeSeries(0, MAX_Y, 1.0, 0.86), [years, growthCurve]);
+  const benchmarkBand = useMemo(() => makeRangeSeries(normalized.bLow, normalized.bHigh, 1.15, 0.95), [normalized, years, growthCurve]);
+  const benchmarkMedian = useMemo(() => makeLineSeries((normalized.bLow + normalized.bHigh) / 2, 1.02), [normalized, years, growthCurve]);
+  const pathwayHighLowBand = useMemo(() => makeRangeSeries(normalized.pLow, normalized.pHigh, 1.2, 0.92), [normalized, years, growthCurve]);
+  const pathwayPercentileBand = useMemo(() => makeRangeSeries(normalized.p10, normalized.p90, 1.1, 0.98), [normalized, years, growthCurve]);
+  const pathwayMedian = useMemo(() => makeLineSeries((normalized.p10 + normalized.p90) / 2, 1.0), [normalized, years, growthCurve]);
+  const diversifiedBand = useMemo(() => makeRangeSeries(normalized.d25, normalized.d75, 1.06, 1.0), [normalized, years, growthCurve]);
+
+  const benchmarkBands = [
+    {
+      key: 'theoretical',
+      label: 'Unbounded prior (0 to max)',
+      series: theoretical,
+      fill: 'rgba(154, 150, 144, 0.20)',
+      stroke: '#8E8A84',
+      visible: true,
+      active: step === 1
+    },
+    {
+      key: 'benchmark',
+      label: 'Benchmark p10-p90 band',
+      series: benchmarkBand,
+      fill: 'rgba(74, 123, 167, 0.35)',
+      stroke: '#3F6C97',
+      visible: step >= 2,
+      active: step === 2
+    }
+  ];
+
+  const pathwayBands = [
+    {
+      key: 'pathway-hilo',
+      label: 'Pathway high/low observed band (placeholder)',
+      series: pathwayHighLowBand,
+      fill: 'rgba(181, 71, 58, 0.20)',
+      stroke: '#B5473A',
+      visible: step >= 3,
+      active: step === 3
+    },
+    {
+      key: 'pathway-percentile',
+      label: 'Pathway p10-p90 band (placeholder)',
+      series: pathwayPercentileBand,
+      fill: 'rgba(45, 107, 79, 0.34)',
+      stroke: '#2D6B4F',
+      visible: step >= 4,
+      active: step === 4
+    },
+    {
+      key: 'diversified',
+      label: 'Diversified portfolio p25-p75 band',
+      series: diversifiedBand,
+      fill: 'rgba(201, 168, 76, 0.44)',
+      stroke: '#A8892E',
+      visible: step >= 5,
+      active: step === 5
+    }
+  ];
+
+  const benchmarkLines = [
+    {
+      key: 'benchmark-median',
+      label: 'Benchmark median',
+      series: benchmarkMedian,
+      color: '#1B2A4A',
+      dashed: true,
+      visible: step >= 2,
+      active: step === 2
+    }
+  ];
+
+  const pathwayLines = [
+    {
+      key: 'pathway-median',
+      label: 'Pathway median',
+      series: pathwayMedian,
+      color: '#1B2A4A',
+      dashed: true,
+      visible: step >= 4,
+      active: step >= 4
+    }
+  ];
+
+  const activeSeries = step === 1
+    ? theoretical
+    : step === 2
+      ? benchmarkBand
+      : step === 3
+        ? pathwayHighLowBand
+        : step === 4
+          ? pathwayPercentileBand
+          : diversifiedBand;
+
+  const focusIndex = Math.max(0, Math.min(HORIZON, Math.round(focusYear)));
+  const activeLow = activeSeries[focusIndex]?.low ?? 0;
+  const activeHigh = activeSeries[focusIndex]?.high ?? 0;
+  const activeWidth = activeHigh - activeLow;
+  const baselineWidth = (theoretical[focusIndex]?.high ?? 0) - (theoretical[focusIndex]?.low ?? 0);
+  const compression = baselineWidth > 0 ? (1 - activeWidth / baselineWidth) * 100 : 0;
+
+  const stepTitles = [
+    'Start wide: 0 to max outcomes',
+    'Tighten with benchmark percentiles',
+    'Switch to Pathway high/low history',
+    'Refine with Pathway percentile ranges',
+    'Apply diversification smoothing'
+  ];
+
+  const stepPrompt = step === 1
+    ? 'Click "Tighten With Benchmark Data" to narrow using third-party medians and percentiles.'
+    : step === 2
+      ? 'Now click "Use Pathway Data" to switch to a richer historical lens.'
+      : step === 3
+        ? 'Use Pathway percentiles to tighten from high/low extremes into a practical range.'
+        : step === 4
+          ? 'Apply diversification to show how a portfolio smooths single-fund volatility.'
+          : 'You are now at a planning-grade band. Reset to replay the narrowing process.';
+
+  const nextStepLabel = step === 1
+    ? 'Tighten With Benchmark Data'
+    : step === 2
+      ? 'Use Pathway Data'
+      : step === 3
+        ? 'Tighten With Pathway Percentiles'
+        : step === 4
+          ? 'Apply Diversification'
+          : 'Restart Funnel';
+
+  const advanceStep = () => {
+    setStep((prev) => (prev >= 5 ? 1 : prev + 1));
+  };
+
+  const resetForecast = () => {
+    setStep(DEFAULTS.step);
+    setFocusYear(DEFAULTS.focusYear);
+    setBenchmarkP10(DEFAULTS.benchmarkP10);
+    setBenchmarkP90(DEFAULTS.benchmarkP90);
+    setPathwayLow(DEFAULTS.pathwayLow);
+    setPathwayHigh(DEFAULTS.pathwayHigh);
+    setPathwayP10(DEFAULTS.pathwayP10);
+    setPathwayP90(DEFAULTS.pathwayP90);
+    setDiversifiedP25(DEFAULTS.diversifiedP25);
+    setDiversifiedP75(DEFAULTS.diversifiedP75);
+  };
+
+  return (
+    <section id="portfolio-future-forecast" className="content-section">
+      <h2>6. Future Forecast Funnel</h2>
+      <p>
+        This walks users from a deliberately broad uncertainty band to a practical planning range.
+        The first chart uses benchmark-style data, then the second asks: what if we had richer internal
+        history? Placeholder endpoints are intentionally editable so you can swap in real Pathway values later.
+      </p>
+
+      <div className="interactive-block">
+        <div className="block-header">
+          <span className="block-title">Single-Fund NAV Forecast: Narrowing The Funnel Over Time</span>
+          <span className="block-subtitle">X-axis is time, Y-axis is possible NAV outcome range</span>
+        </div>
+        <div className="block-actions">
+          <button type="button" className="portfolio-funnel-step-btn ghost" onClick={() => setStep((prev) => Math.max(1, prev - 1))} disabled={step === 1}>
+            Previous Step
+          </button>
+          <button type="button" className="portfolio-funnel-step-btn" onClick={advanceStep}>
+            {nextStepLabel}
+          </button>
+          <ResetButton onClick={resetForecast} />
+        </div>
+
+        <div className="portfolio-funnel-controls">
+          <Slider
+            label="Future Year To Inspect"
+            value={focusYear}
+            min={1}
+            max={HORIZON}
+            step={1}
+            format={(v) => `Year ${Math.round(v)}`}
+            onChange={(v) => setFocusYear(Math.round(v))}
+            accent="#1B2A4A"
+          />
+          <div className="portfolio-funnel-step-status">
+            <div className="portfolio-funnel-step-title">Step {step} of 5: {stepTitles[step - 1]}</div>
+            <div className="portfolio-funnel-step-prompt">{stepPrompt}</div>
+            <div className="portfolio-funnel-step-pills">
+              {stepTitles.map((_, idx) => (
+                <button
+                  type="button"
+                  key={idx}
+                  className={`portfolio-funnel-pill ${step === idx + 1 ? 'active' : step > idx + 1 ? 'done' : ''}`}
+                  onClick={() => setStep(idx + 1)}
+                >
+                  {idx + 1}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="portfolio-funnel-chart-grid">
+          <PortfolioForecastBandChart
+            title="Chart A: Benchmark Funnel"
+            subtitle="From 0-to-max uncertainty to a benchmark percentile band"
+            bands={benchmarkBands}
+            lineSeries={benchmarkLines}
+            focusYear={focusYear}
+            horizonYears={HORIZON}
+            maxY={MAX_Y}
+          />
+
+          {step < 3 ? (
+            <div className="portfolio-funnel-placeholder">
+              <div className="portfolio-funnel-placeholder-title">Chart B: What if we had better historical data?</div>
+              <p>
+                Click <strong>Use Pathway Data</strong> to unlock a second funnel that uses
+                proprietary manager-level history to refine assumptions beyond benchmark medians.
+              </p>
+            </div>
+          ) : (
+            <PortfolioForecastBandChart
+              title="Chart B: Pathway Proprietary Funnel"
+              subtitle="From Pathway high/low history to percentile bands and diversified outcomes"
+              bands={pathwayBands}
+              lineSeries={pathwayLines}
+              focusYear={focusYear}
+              horizonYears={HORIZON}
+              maxY={MAX_Y}
+            />
+          )}
+        </div>
+
+        <div className="portfolio-funnel-proprietary">
+          <div className="portfolio-funnel-proprietary-title">Why this should highlight Pathway expertise</div>
+          <p>
+            Benchmark medians are useful, but they can only narrow the funnel so far. The second chart is where
+            Pathway can demonstrate edge by grounding assumptions in proprietary manager-level historical NAV and
+            cash-flow behavior. Replace the placeholder range endpoints with final internal values before publication.
+          </p>
+        </div>
+
+        <div className="sliders-grid three-up">
+          <Slider
+            label="Benchmark P10 Terminal NAV (Placeholder)"
+            value={benchmarkP10}
+            min={0.2}
+            max={2.2}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setBenchmarkP10}
+            accent="#4A7BA7"
+          />
+          <Slider
+            label="Benchmark P90 Terminal NAV (Placeholder)"
+            value={benchmarkP90}
+            min={1.0}
+            max={4.0}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setBenchmarkP90}
+            accent="#4A7BA7"
+          />
+          <Slider
+            label="Pathway High Terminal (Placeholder)"
+            value={pathwayHigh}
+            min={1.0}
+            max={4.0}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setPathwayHigh}
+            accent="#B5473A"
+          />
+          <Slider
+            label="Pathway Low Terminal (Placeholder)"
+            value={pathwayLow}
+            min={0.0}
+            max={1.8}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setPathwayLow}
+            accent="#B5473A"
+          />
+          <Slider
+            label="Pathway P10 Terminal (Placeholder)"
+            value={pathwayP10}
+            min={0.4}
+            max={2.4}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setPathwayP10}
+            accent="#2D6B4F"
+          />
+          <Slider
+            label="Pathway P90 Terminal (Placeholder)"
+            value={pathwayP90}
+            min={1.2}
+            max={3.4}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setPathwayP90}
+            accent="#2D6B4F"
+          />
+          <Slider
+            label="Diversified P25 Terminal"
+            value={diversifiedP25}
+            min={0.8}
+            max={2.6}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setDiversifiedP25}
+            accent="#C9A84C"
+          />
+          <Slider
+            label="Diversified P75 Terminal"
+            value={diversifiedP75}
+            min={1.2}
+            max={3.0}
+            step={0.05}
+            format={(v) => `${v.toFixed(2)}x`}
+            onChange={setDiversifiedP75}
+            accent="#C9A84C"
+          />
+        </div>
+
+        <div className="metrics-row">
+          <MetricCard
+            label={`Year ${focusYear} Active Range`}
+            value={`${activeLow.toFixed(2)}x to ${activeHigh.toFixed(2)}x`}
+            subtext={`Step ${step} lens`}
+            accent="#1B2A4A"
+          />
+          <MetricCard
+            label={`Year ${focusYear} Width`}
+            value={`${activeWidth.toFixed(2)}x`}
+            subtext="Top minus bottom"
+            accent="#2D6B4F"
+          />
+          <MetricCard
+            label="Funnel Compression"
+            value={`${Math.max(0, compression).toFixed(0)}%`}
+            subtext={`Compared with unbounded prior at Year ${focusYear}`}
+            accent="#C9A84C"
+          />
+        </div>
+      </div>
+    </section>
+  );
+};
+
 const PortfolioRiffsSection = () => (
   <section id="portfolio-riffs" className="content-section">
     <h2>Riffs: What Else Matters in Real Programs</h2>
@@ -6870,7 +7573,8 @@ const PortfolioRiffsSection = () => (
         'Program-level leverage or NAV credit facilities and their effect on pacing flexibility.',
         'Currency effects for global portfolios and how FX can distort denominator-based exposure targets.',
         'How manager concentration limits should differ by strategy maturity and secondary liquidity depth.',
-        'Operational implementation: staffing model, pacing committee cadence, and live commitment approval workflows.'
+        'Operational implementation: staffing model, pacing committee cadence, and live commitment approval workflows.',
+        'How to calibrate forecasting priors by strategy, region, and market regime before turning ranges into pacing decisions.'
       ]}
     />
   </section>
@@ -8266,6 +8970,172 @@ export default function App() {
           font-size: 14px;
           color: #2E3F5E;
           line-height: 1.5;
+        }
+
+        .portfolio-forecast-step-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1.1fr) minmax(0, 0.9fr);
+          gap: 12px;
+          margin-bottom: 10px;
+          align-items: end;
+        }
+
+        .portfolio-forecast-stage-note {
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          background: #F8FAFD;
+          padding: 10px 12px;
+          min-height: 66px;
+          display: grid;
+          gap: 4px;
+          color: #4F5B72;
+          font-size: 13px;
+          line-height: 1.45;
+        }
+
+        .portfolio-forecast-stage-note strong {
+          color: #1B2A4A;
+          font-size: 13px;
+        }
+
+        .portfolio-forecast-chart {
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          background: #FBFCFF;
+          padding: 14px 12px 12px;
+          margin: 10px 0 12px;
+        }
+
+        .portfolio-forecast-axis {
+          position: relative;
+          height: 20px;
+          margin: 0 0 8px;
+          border-bottom: 1px dashed #CCD6E5;
+        }
+
+        .portfolio-forecast-axis span {
+          position: absolute;
+          top: -1px;
+          transform: translateX(-50%);
+          font-size: 11px;
+          color: #6B7488;
+          white-space: nowrap;
+        }
+
+        .portfolio-forecast-row {
+          padding: 8px 0 10px;
+          transition: opacity 0.25s ease, transform 0.25s ease;
+        }
+
+        .portfolio-forecast-row + .portfolio-forecast-row {
+          border-top: 1px solid #E8EDF5;
+        }
+
+        .portfolio-forecast-row.pending {
+          opacity: 0.35;
+        }
+
+        .portfolio-forecast-row.active {
+          opacity: 1;
+          transform: translateY(-1px);
+        }
+
+        .portfolio-forecast-row-head {
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 6px;
+          align-items: baseline;
+        }
+
+        .portfolio-forecast-row-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: #1B2A4A;
+        }
+
+        .portfolio-forecast-row-range {
+          font-size: 12px;
+          color: #4F5B72;
+          font-weight: 600;
+          white-space: nowrap;
+        }
+
+        .portfolio-forecast-track {
+          position: relative;
+          height: 26px;
+          border-radius: 999px;
+          background: #EEF3FA;
+          overflow: visible;
+        }
+
+        .portfolio-forecast-band {
+          position: absolute;
+          top: 4px;
+          height: 18px;
+          border-radius: 999px;
+          transition: left 0.3s ease, width 0.3s ease, opacity 0.25s ease;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .portfolio-forecast-band.infinite {
+          background: repeating-linear-gradient(
+            135deg,
+            rgba(154, 150, 144, 0.45),
+            rgba(154, 150, 144, 0.45) 8px,
+            rgba(154, 150, 144, 0.2) 8px,
+            rgba(154, 150, 144, 0.2) 16px
+          );
+        }
+
+        .portfolio-forecast-band.pathway {
+          background: rgba(74, 123, 167, 0.45);
+        }
+
+        .portfolio-forecast-band.modeled {
+          background: rgba(45, 107, 79, 0.48);
+        }
+
+        .portfolio-forecast-band.diversified {
+          background: rgba(201, 168, 76, 0.55);
+        }
+
+        .portfolio-forecast-infinity {
+          font-size: 11px;
+          font-weight: 600;
+          color: #4A4641;
+          letter-spacing: 0.2px;
+        }
+
+        .portfolio-forecast-bound {
+          position: absolute;
+          top: -17px;
+          transform: translateX(-50%);
+          font-size: 11px;
+          font-weight: 600;
+          color: #2E3F5E;
+          white-space: nowrap;
+        }
+
+        .portfolio-forecast-baseline {
+          position: absolute;
+          top: 0;
+          bottom: 0;
+          border-left: 1px dashed rgba(27, 42, 74, 0.55);
+        }
+
+        .portfolio-forecast-baseline span {
+          position: absolute;
+          top: 27px;
+          left: 4px;
+          font-size: 10px;
+          color: #5C6780;
+          background: rgba(255, 255, 255, 0.9);
+          padding: 1px 3px;
+          border-radius: 4px;
+          border: 1px solid rgba(220, 227, 238, 0.9);
         }
 
         @keyframes flowDash {
@@ -9934,6 +10804,10 @@ export default function App() {
             grid-template-columns: 1fr;
           }
 
+          .portfolio-forecast-step-grid {
+            grid-template-columns: 1fr;
+          }
+
           .portfolio-lifecycle-assumption-grid {
             grid-template-columns: 1fr;
           }
@@ -10015,6 +10889,12 @@ export default function App() {
 
           .portfolio-flow-svg {
             height: 480px;
+          }
+
+          .portfolio-forecast-row-head {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 2px;
           }
 
           .hero-graphboard {
@@ -10137,6 +11017,7 @@ export default function App() {
               <PortfolioStrategyCurvesSection />
               <PortfolioTargetingSection />
               <PortfolioTypesSection />
+              <PortfolioFutureForecastSection />
               <PortfolioRiffsSection />
             </>
           ) : (
