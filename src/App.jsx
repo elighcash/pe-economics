@@ -543,7 +543,9 @@ const ComparisonChart = ({
   shiftArrows = [],
   animateShiftArrows = false,
   marker = null,
-  showLegend = true
+  showLegend = true,
+  inlineLabels = [],
+  continuationArrowA = null
 }) => {
   const canvasRef = useRef(null);
 
@@ -633,6 +635,85 @@ const ComparisonChart = ({
         else ctx.lineTo(x, y);
       });
       ctx.stroke();
+
+      if (continuationArrowA) {
+        const lastIdx = length - 1;
+        const prevIdx = Math.max(0, lastIdx - 1);
+        const startX = xForIndex(lastIdx);
+        const startY = yForValue(safeSeriesA[lastIdx]);
+        const baseDx = xForIndex(lastIdx) - xForIndex(prevIdx);
+        const baseDy = yForValue(safeSeriesA[lastIdx]) - yForValue(safeSeriesA[prevIdx]);
+        const magnitude = Math.max(1e-6, Math.hypot(baseDx, baseDy));
+        const ux = baseDx / magnitude;
+        const uy = baseDy / magnitude;
+        const targetX = Math.min(width - 6, startX + ux * 22);
+        const targetY = Math.max(padding.top + 8, Math.min(h - padding.bottom - 8, startY + uy * 22));
+
+        ctx.strokeStyle = continuationArrowA.color || colorA;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        ctx.lineTo(targetX, targetY);
+        ctx.stroke();
+
+        const angle = Math.atan2(targetY - startY, targetX - startX);
+        const head = 6;
+        ctx.fillStyle = continuationArrowA.color || colorA;
+        ctx.beginPath();
+        ctx.moveTo(targetX, targetY);
+        ctx.lineTo(
+          targetX - head * Math.cos(angle - Math.PI / 6),
+          targetY - head * Math.sin(angle - Math.PI / 6)
+        );
+        ctx.lineTo(
+          targetX - head * Math.cos(angle + Math.PI / 6),
+          targetY - head * Math.sin(angle + Math.PI / 6)
+        );
+        ctx.closePath();
+        ctx.fill();
+
+        if (continuationArrowA.text) {
+          ctx.font = '600 10px Helvetica Neue';
+          ctx.textAlign = 'right';
+          ctx.fillStyle = continuationArrowA.color || colorA;
+          ctx.fillText(continuationArrowA.text, targetX - 4, targetY - 6);
+        }
+      }
+
+      if (inlineLabels.length > 0) {
+        inlineLabels.forEach((item) => {
+          const source = item.series === 'B' ? safeSeriesB : safeSeriesA;
+          const baseColor = item.color || (item.series === 'B' ? colorB : colorA);
+          const idx = Math.max(0, Math.min(length - 1, item.index ?? length - 1));
+          const x = xForIndex(idx) + (item.dx ?? 8);
+          const y = yForValue(source[idx]) + (item.dy ?? 0);
+          const text = item.text || '';
+          if (!text) return;
+
+          ctx.font = '600 10px Helvetica Neue';
+          const textWidth = ctx.measureText(text).width;
+          const padX = 5;
+          const boxW = textWidth + padX * 2;
+          const boxH = 14;
+          const drawX = Math.max(
+            padding.left,
+            Math.min(width - padding.right - boxW, x)
+          );
+          const drawY = Math.max(
+            padding.top,
+            Math.min(h - padding.bottom - boxH, y - boxH + 2)
+          );
+
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.92)';
+          ctx.fillRect(drawX, drawY, boxW, boxH);
+          ctx.strokeStyle = 'rgba(27, 42, 74, 0.16)';
+          ctx.lineWidth = 1;
+          ctx.strokeRect(drawX, drawY, boxW, boxH);
+          ctx.textAlign = 'left';
+          ctx.fillStyle = baseColor;
+          ctx.fillText(text, drawX + padX, drawY + 10);
+        });
+      }
 
       if (marker && Number.isFinite(marker.index) && marker.index >= 0 && marker.index < length) {
         const markerX = xForIndex(marker.index);
@@ -804,7 +885,9 @@ const ComparisonChart = ({
     shiftArrows,
     animateShiftArrows,
     marker,
-    showLegend
+    showLegend,
+    inlineLabels,
+    continuationArrowA
   ]);
 
   return <canvas ref={canvasRef} className="comparison-canvas" style={{ width: '100%', height }} />;
@@ -821,7 +904,11 @@ const LayeredNavBuildChart = ({
   animateOnVisible = false,
   loopAnimation = false,
   replayKey = 0,
-  showLegend = true
+  showLegend = true,
+  showVintageCallout = false,
+  exposureTarget = null,
+  exposureTargetLabel = 'Exposure Target',
+  exposureTargetLabelBelow = false
 }) => {
   const canvasRef = useRef(null);
   const hasPlayedRef = useRef(false);
@@ -864,6 +951,7 @@ const LayeredNavBuildChart = ({
     const VINTAGE_REVEAL_MS = 2600;
     const TOTAL_REVEAL_MS = 1900;
     const TOTAL_ANIMATION_MS = VINTAGE_REVEAL_MS + TOTAL_REVEAL_MS;
+    const LOOP_HOLD_MS = 3000;
     let animationStart = null;
 
     const draw = (timestamp = 0, forceComplete = false) => {
@@ -891,10 +979,12 @@ const LayeredNavBuildChart = ({
       const denominator = Math.max(1, length - 1);
 
       const allValues = [...safeTotal, ...safeSingle, ...safeVintages.flat()].filter((value) => Number.isFinite(value));
+      const targetValue = Number.isFinite(exposureTarget) ? Number(exposureTarget) : null;
       const maxValue = Math.max(1e-9, ...allValues) * 1.1;
-      const range = Math.max(1e-9, maxValue);
+      const maxWithTarget = targetValue !== null ? Math.max(maxValue, targetValue * 1.08) : maxValue;
+      const range = Math.max(1e-9, maxWithTarget);
       const xForIndex = (i) => padding.left + (i / denominator) * chartWidth;
-      const yForValue = (v) => padding.top + ((maxValue - v) / range) * chartHeight;
+      const yForValue = (v) => padding.top + ((maxWithTarget - v) / range) * chartHeight;
 
       const elapsed = forceComplete || reduceMotion
         ? TOTAL_ANIMATION_MS
@@ -980,11 +1070,39 @@ const LayeredNavBuildChart = ({
         ctx.lineTo(width - padding.right, y);
         ctx.stroke();
 
-        const value = maxValue - (i / 4) * range;
+        const value = maxWithTarget - (i / 4) * range;
         ctx.fillStyle = '#9A9690';
         ctx.font = '10px system-ui';
         ctx.textAlign = 'right';
         ctx.fillText(yFormatter(value), padding.left - 8, y + 4);
+      }
+
+      if (targetValue !== null && targetValue > 0) {
+        const targetY = yForValue(targetValue);
+        ctx.strokeStyle = 'rgba(168, 137, 46, 0.85)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([8, 6]);
+        ctx.beginPath();
+        ctx.moveTo(padding.left, targetY);
+        ctx.lineTo(width - padding.right, targetY);
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        const targetText = `${exposureTargetLabel}`;
+        ctx.font = '600 12px Helvetica Neue';
+        const txtW = ctx.measureText(targetText).width;
+        const badgeW = txtW + 12;
+        const badgeX = Math.max(padding.left + 4, width - padding.right - badgeW);
+        const badgeY = exposureTargetLabelBelow
+          ? Math.min(h - padding.bottom - 18, targetY + 4)
+          : Math.max(padding.top + 2, targetY - 19);
+        ctx.fillStyle = 'rgba(255,255,255,0.96)';
+        ctx.fillRect(badgeX, badgeY, badgeW, 16);
+        ctx.strokeStyle = 'rgba(168, 137, 46, 0.5)';
+        ctx.strokeRect(badgeX, badgeY, badgeW, 16);
+        ctx.fillStyle = '#A8892E';
+        ctx.textAlign = 'left';
+        ctx.fillText(targetText, badgeX + 6, badgeY + 12);
       }
 
       // Single-commitment template curve (dashed) stays visible as context.
@@ -1040,18 +1158,78 @@ const LayeredNavBuildChart = ({
         ctx.arc(endX, endY, 3.5, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.font = '600 10px Helvetica Neue';
+        ctx.font = '600 12px Helvetica Neue';
         const totalLabel = 'Summed Portfolio NAV';
-        const labelWidth = ctx.measureText(totalLabel).width + 10;
+        const labelWidth = ctx.measureText(totalLabel).width + 12;
         const labelX = Math.max(padding.left + 4, Math.min(width - padding.right - labelWidth, endX - labelWidth - 8));
         const labelY = Math.max(padding.top + 6, endY - 18);
         ctx.fillStyle = 'rgba(255,255,255,0.96)';
-        ctx.fillRect(labelX, labelY, labelWidth, 14);
+        ctx.fillRect(labelX, labelY, labelWidth, 16);
         ctx.strokeStyle = 'rgba(45, 107, 79, 0.45)';
-        ctx.strokeRect(labelX, labelY, labelWidth, 14);
+        ctx.strokeRect(labelX, labelY, labelWidth, 16);
         ctx.fillStyle = '#2D6B4F';
         ctx.textAlign = 'left';
-        ctx.fillText(totalLabel, labelX + 5, labelY + 10);
+        ctx.fillText(totalLabel, labelX + 6, labelY + 12);
+      }
+
+      if (showVintageCallout && safeVintages.length > 2 && vintagePhaseProgress > 0.55) {
+        const calloutX = xForIndex(Math.min(length - 1, 7));
+        const calloutY = yForValue(safeVintages[Math.min(2, safeVintages.length - 1)][Math.min(length - 1, 7)]) + 8;
+        const arrowTargets = [Math.min(length - 1, 5), Math.min(length - 1, 7), Math.min(length - 1, 9), Math.min(length - 1, 11)];
+        const arrowSeriesIdx = [1, Math.min(safeVintages.length - 1, 3), Math.min(safeVintages.length - 1, 5), Math.min(safeVintages.length - 1, 7)];
+        const dashOffset = reduceMotion ? 0 : -((timestamp * 0.012) % 10);
+
+        arrowTargets.forEach((targetIdx, k) => {
+          const targetSeries = safeVintages[arrowSeriesIdx[k]];
+          if (!targetSeries) return;
+          const tx = xForIndex(targetIdx);
+          const ty = yForValue(targetSeries[targetIdx]);
+          const sx = calloutX + (-22 + k * 14);
+          const sy = calloutY - 18;
+          const cx = (sx + tx) / 2 + (-30 + k * 14);
+          const cy = Math.min(sy, ty) - (14 + k * 2);
+
+          ctx.strokeStyle = 'rgba(74, 123, 167, 0.85)';
+          ctx.lineWidth = 1.6;
+          ctx.setLineDash([5, 5]);
+          ctx.lineDashOffset = dashOffset;
+          ctx.beginPath();
+          ctx.moveTo(sx, sy);
+          ctx.quadraticCurveTo(cx, cy, tx, ty);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.lineDashOffset = 0;
+
+          const angle = Math.atan2(ty - cy, tx - cx);
+          const headSize = 5;
+          ctx.fillStyle = 'rgba(74, 123, 167, 0.95)';
+          ctx.beginPath();
+          ctx.moveTo(tx, ty);
+          ctx.lineTo(
+            tx - headSize * Math.cos(angle - Math.PI / 6),
+            ty - headSize * Math.sin(angle - Math.PI / 6)
+          );
+          ctx.lineTo(
+            tx - headSize * Math.cos(angle + Math.PI / 6),
+            ty - headSize * Math.sin(angle + Math.PI / 6)
+          );
+          ctx.closePath();
+          ctx.fill();
+        });
+
+        const calloutText = 'Individual fund NAV curves';
+        ctx.font = '600 12px Helvetica Neue';
+        const textWidth = ctx.measureText(calloutText).width;
+        const badgeW = textWidth + 12;
+        const badgeX = Math.max(padding.left + 4, Math.min(width - padding.right - badgeW, calloutX - badgeW / 2));
+        const badgeY = calloutY - 28;
+        ctx.fillStyle = 'rgba(255,255,255,0.96)';
+        ctx.fillRect(badgeX, badgeY, badgeW, 16);
+        ctx.strokeStyle = 'rgba(74, 123, 167, 0.38)';
+        ctx.strokeRect(badgeX, badgeY, badgeW, 16);
+        ctx.fillStyle = '#4A7BA7';
+        ctx.textAlign = 'left';
+        ctx.fillText(calloutText, badgeX + 6, badgeY + 12);
       }
 
       if (showLegend) {
@@ -1134,7 +1312,7 @@ const LayeredNavBuildChart = ({
       const elapsed = ts - animationStart;
       draw(elapsed);
       if (loopAnimation) {
-        if (elapsed >= TOTAL_ANIMATION_MS) {
+        if (elapsed >= TOTAL_ANIMATION_MS + LOOP_HOLD_MS) {
           animationStart = ts;
         }
         rafId = window.requestAnimationFrame(animate);
@@ -1163,7 +1341,11 @@ const LayeredNavBuildChart = ({
     isInView,
     loopAnimation,
     replayKey,
-    showLegend
+    showLegend,
+    showVintageCallout,
+    exposureTarget,
+    exposureTargetLabel,
+    exposureTargetLabelBelow
   ]);
 
   return <canvas ref={canvasRef} className="comparison-canvas layered-nav-canvas" style={{ width: '100%', height }} />;
@@ -1444,6 +1626,44 @@ const SingleFundContribNavChart = ({ data, height = 245, xTickStep = 1 }) => {
       ctx.fill();
     });
 
+    // Peak NAV marker and label
+    const peakIdx = data.reduce(
+      (bestIdx, row, idx, arr) => ((row.navM || 0) > (arr[bestIdx]?.navM || 0) ? idx : bestIdx),
+      0
+    );
+    const peakRow = data[peakIdx] || data[0];
+    const peakX = padding.left + (peakIdx + 0.5) * bandWidth;
+    const peakY = yForValue(Math.max(0, peakRow.navM || 0));
+    const peakYearLabel = peakRow.label || `Yr ${peakIdx}`;
+    const peakText = `Peak NAV ${formatCurrency((peakRow.navM || 0) * 1e6, 0)} (${peakYearLabel})`;
+
+    ctx.beginPath();
+    ctx.arc(peakX, peakY, 4.2, 0, Math.PI * 2);
+    ctx.fillStyle = '#2D6B4F';
+    ctx.fill();
+    ctx.lineWidth = 1.4;
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.stroke();
+
+    ctx.font = '600 10px system-ui';
+    const peakTextWidth = ctx.measureText(peakText).width;
+    const peakBoxW = peakTextWidth + 10;
+    const peakBoxH = 14;
+    const peakBoxX = Math.max(
+      padding.left + 4,
+      Math.min(width - padding.right - peakBoxW - 2, peakX - peakTextWidth / 2 - 5)
+    );
+    const preferAbove = peakY - 20 > padding.top + 4;
+    const peakBoxY = preferAbove ? peakY - 20 : peakY + 8;
+    ctx.fillStyle = 'rgba(255, 255, 255, 0.94)';
+    ctx.fillRect(peakBoxX, peakBoxY, peakBoxW, peakBoxH);
+    ctx.strokeStyle = 'rgba(45, 107, 79, 0.45)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(peakBoxX, peakBoxY, peakBoxW, peakBoxH);
+    ctx.fillStyle = '#2D6B4F';
+    ctx.textAlign = 'left';
+    ctx.fillText(peakText, peakBoxX + 5, peakBoxY + 10);
+
     // End label for NAV
     const last = data[data.length - 1];
     const endX = padding.left + (n - 0.5) * bandWidth;
@@ -1609,6 +1829,9 @@ const HeroGrossNetGraph = () => {
     const minY = 1.0;
     const maxY = 3.5;
     const reducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const sweepDurationMs = 6200;
+    const holdDurationMs = 3000;
+    const cycleDurationMs = sweepDurationMs + holdDurationMs;
 
     const interpolateNet = (gross) => {
       if (gross <= netCurve[0].gross) return netCurve[0].net;
@@ -1758,7 +1981,12 @@ const HeroGrossNetGraph = () => {
       ctx.textAlign = 'left';
       ctx.fillText('Baseline 2.5x → 2.0x', baselineLabelX, baselineLabelY);
 
-      const phase = reducedMotion ? 0.62 : (Math.sin(timestamp * 0.00045) + 1) / 2;
+      let phase = 0.62;
+      if (!reducedMotion) {
+        const cycleTime = timestamp % cycleDurationMs;
+        const linearPhase = cycleTime <= sweepDurationMs ? cycleTime / sweepDurationMs : 1;
+        phase = Math.max(0, Math.min(1, linearPhase));
+      }
       const animatedGross = minX + phase * (maxX - minX);
       const animatedNet = interpolateNet(animatedGross);
       const gx = axisX(animatedGross, padding, width);
@@ -6355,6 +6583,10 @@ const PortfolioHeroStackTeaser = () => {
         animateOnVisible={false}
         loopAnimation={true}
         showLegend={false}
+        showVintageCallout={true}
+        exposureTarget={900}
+        exposureTargetLabel="Exposure Target"
+        exposureTargetLabelBelow={true}
       />
     </div>
   );
@@ -6404,7 +6636,7 @@ const PortfolioLevelSetSection = () => {
 
   return (
     <section id="portfolio-level-set" className="content-section">
-      <h2>1. How This Works (Plain English)</h2>
+      <h2>1. How This Works (Simplified)</h2>
       <p>
         Private equity is not one upfront payment. You first commit capital, then the GP calls it in
         pieces over several years. During that period, your value is reported as NAV. Only later, when
@@ -6451,6 +6683,28 @@ const PortfolioLevelSetSection = () => {
           colorA="#1B2A4A"
           colorB="#2D6B4F"
           height={260}
+          inlineLabels={[
+            {
+              series: 'A',
+              index: years.length - 2,
+              text: 'Publics: keeps compounding',
+              dx: -160,
+              dy: -14,
+              color: '#1B2A4A'
+            },
+            {
+              series: 'B',
+              index: Math.min(years.length - 1, 10),
+              text: 'PE fund: NAV declines as exits return cash',
+              dx: -240,
+              dy: 18,
+              color: '#2D6B4F'
+            }
+          ]}
+          continuationArrowA={{
+            color: '#1B2A4A',
+            text: 'continues'
+          }}
         />
 
         <div className="metrics-row">
@@ -6898,14 +7152,24 @@ const PortfolioSingleFundSection = () => {
         </p>
 
         <h3 className="chart-title">Single Fund: Annual LP Contributions vs Expected NAV</h3>
+        <p className="portfolio-inline-note">
+          In the chart below, we illustrate how a single {formatCurrency(commitmentM * 1e6, 0)} commitment is
+          drawn and how its value progresses. Note that this commitment is invested over {investmentPeriod} years
+          (not all at once), expected NAV peaks at about {formatCurrency(peakNavM * 1e6, 0)}, and that peak does
+          not occur until year {peakNavYear}. It takes time to build a traditional PE portfolio, and it is
+          constantly in a state of flux.
+        </p>
         <SingleFundContribNavChart
           data={singleFundContribNavSeries}
           height={245}
           xTickStep={1}
         />
         <p className="portfolio-inline-note">
-          This chart is intentionally one fund only. In Section 3, we layer many single-fund NAV curves
-          to show how portfolio construction changes the profile.
+          This chart is intentionally one fund and presents just one hypothetical (but well-informed)
+          possible path for drawdown pace and NAV profile. In Section 3, we layer many single-fund
+          exposures together to show how portfolio construction can change the profile. Then later
+          we discuss how to improve estimates of your portfolio's future NAV and how to make rapid
+          adjustments to that exposure.
         </p>
       </div>
     </section>
@@ -7057,6 +7321,9 @@ const PortfolioLayeringSection = ({ globalGrossMultiple, onGrossMultipleChange }
           height={300}
           animateOnVisible={true}
           replayKey={layerReplayKey}
+          showVintageCallout={true}
+          exposureTarget={1950}
+          exposureTargetLabel="Exposure Target"
         />
         <p className="portfolio-inline-note">
           Each light-blue curve is one vintage's NAV path. The dark-green line is the point-by-point sum of all those curves.
