@@ -147,7 +147,6 @@ const SECTION_LINKS = [
   { id: 'underinvesting-impact', label: 'Underinvesting' },
   { id: 'fee-carry-tradeoff', label: 'Fee/Carry Tradeoff' },
   { id: 'quarterly-schedule', label: 'Quarterly Schedule' },
-  { id: 'synthesis', label: 'Put It Together' },
   { id: 'conclusion', label: 'Conclusion' }
 ];
 
@@ -2286,8 +2285,8 @@ const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMult
     const maxValue = Math.max(
       ...quarterlyData.map(q => Math.max(
         q.cumulativeDrawdown,
-        q.nav + q.cumulativeNetDPI,
-        q.cumulativeNetDPI
+        q.nav + q.cumulativeGrossDPI,
+        q.cumulativeGrossDPI
       ))
     ) * 1.15;
 
@@ -2322,26 +2321,26 @@ const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMult
     ctx.stroke();
     ctx.setLineDash([]);
 
-    // Draw NAV + Distributions line (total value)
+    // Draw NAV + DPI line (gross TVPI path), kept economically coherent over time.
     ctx.strokeStyle = '#2D6B4F';
     ctx.lineWidth = 3;
     ctx.beginPath();
     quarterlyData.forEach((q, i) => {
       const x = padding.left + (q.quarter / totalQuarters) * chartWidth;
-      const totalValue = q.nav + q.cumulativeNetDPI;
+      const totalValue = q.nav + q.cumulativeGrossDPI;
       const y = padding.top + (1 - totalValue / maxValue) * chartHeight;
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
     });
     ctx.stroke();
 
-    // Draw distributions area (DPI)
+    // Draw distributions area (gross DPI)
     ctx.fillStyle = 'rgba(74, 123, 167, 0.18)';
     ctx.beginPath();
     ctx.moveTo(padding.left, padding.top + chartHeight);
     quarterlyData.forEach((q) => {
       const x = padding.left + (q.quarter / totalQuarters) * chartWidth;
-      const y = padding.top + (1 - q.cumulativeNetDPI / maxValue) * chartHeight;
+      const y = padding.top + (1 - q.cumulativeGrossDPI / maxValue) * chartHeight;
       ctx.lineTo(x, y);
     });
     ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
@@ -8041,6 +8040,7 @@ export default function App() {
             "metrics main";
           column-gap: 24px;
           row-gap: 24px;
+          align-items: start;
         }
 
         .synthesis-grid .dashboard-controls {
@@ -8050,6 +8050,7 @@ export default function App() {
         .synthesis-grid .dashboard-main {
           grid-area: main;
           min-width: 0;
+          align-self: start;
         }
 
         .synthesis-grid .dashboard-metrics {
@@ -8058,6 +8059,7 @@ export default function App() {
 
         .synthesis-grid .viz-container {
           min-height: 280px;
+          flex: 0 0 auto;
         }
 
         .synthesis-grid .lifecycle-canvas {
@@ -11122,12 +11124,6 @@ export default function App() {
                 onGrossMultipleChange={setGlobalGrossMultiple}
                 globalDeploymentRate={globalDeploymentRate}
                 onDeploymentRateChange={setGlobalDeploymentRate}
-              />
-              <MasterDashboard
-                asSynthesis={true}
-                sectionId="synthesis"
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
               />
               <ConclusionSection />
             </>
