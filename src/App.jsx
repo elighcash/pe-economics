@@ -2375,7 +2375,13 @@ const StickyContactPrompt = ({ activePage }) => {
       >
         ×
       </button>
-      <a className="sticky-contact-link" href={href} aria-label="Contact Pathway new investors">
+      <a
+        className="sticky-contact-link"
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        aria-label="Contact Pathway new investors"
+      >
         <span className="sticky-contact-kicker">{pageCopy.kicker}</span>
         <span className="sticky-contact-title">{pageCopy.title}</span>
         <span className="sticky-contact-email">newinvestors@pathwaycapital.com</span>
