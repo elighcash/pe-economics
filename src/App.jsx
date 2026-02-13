@@ -175,7 +175,8 @@ const PORTFOLIO_SECTION_LINKS = [
   { id: 'portfolio-future-forecast', label: 'Future Forecast Funnel' },
   { id: 'portfolio-strategies', label: 'Strategy Curves' },
   { id: 'portfolio-types', label: 'Investment Type Mix' },
-  { id: 'portfolio-targeting', label: 'Target Exposure Planning' },
+  { id: 'portfolio-targeting', label: 'Chasing Exposure Targets' },
+  { id: 'portfolio-adjusting', label: 'Adjusting Exposure' },
   { id: 'portfolio-riffs', label: 'Implementation Riffs' }
 ];
 
@@ -1770,6 +1771,151 @@ const parseRvpiCsv = (text) => {
   };
 };
 
+const STRATEGY_TYPE_SERIES_META = {
+  buyout: {
+    label: 'Buyout Primaries',
+    drawdownCol: 'BO Qtrly Drawdown',
+    rvpiCol: 'BO RVPI',
+    color: '#1B2A4A',
+    commentary:
+      'Buyout primary funds are the baseline pacing profile: capital is generally drawn over several years, NAV builds, then value is realized over time.'
+  },
+  venture: {
+    label: 'Venture Capital',
+    drawdownCol: 'VC Qtrly Drawdown',
+    rvpiCol: 'VC RVPI',
+    color: '#4A7BA7',
+    commentary:
+      'NAV tends to stretch out further than a typical buyout fund because companies often take longer to mature and become realized assets.'
+  },
+  secondary: {
+    label: 'Secondaries',
+    drawdownCol: 'Secondary Drawdown',
+    rvpiCol: 'Secondary RVPI',
+    color: '#A8892E',
+    commentary:
+      'These are often purchased after a fund has already drawn most of its capital, so deployment is faster and underlying companies are typically realized sooner. Think of this as joining a typical primary around year seven.'
+  },
+  direct: {
+    label: 'Direct Equity',
+    drawdownCol: 'Direct Equity Drawdown',
+    rvpiCol: 'Direct Equity RVPI',
+    color: '#B5473A',
+    commentary:
+      'Capital is typically deployed up front and then value climbs (hopefully) over the hold period until a concentrated exit cycle returns cash.'
+  }
+};
+
+const parseStrategyTypeScheduleCsv = (text) => {
+  const cleaned = (text || '').replace(/^\uFEFF/, '').trim();
+  if (!cleaned) return null;
+  const rows = cleaned
+    .split(/\r?\n/)
+    .map((line) => line.split(','))
+    .filter((cols) => cols.length > 2);
+  if (rows.length < 2) return null;
+
+  const headers = rows[0].map((h) => String(h || '').trim());
+  const idxQuarter = headers.findIndex((h) => h.toLowerCase() === 'quarter');
+  if (idxQuarter < 0) return null;
+
+  const parsePct = (value) => {
+    const raw = String(value ?? '').trim().replace('%', '');
+    if (!raw) return null;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num / 100 : null;
+  };
+  const parseMultiple = (value) => {
+    const raw = String(value ?? '').trim().replace('x', '');
+    if (!raw) return null;
+    const num = Number(raw);
+    return Number.isFinite(num) ? num : null;
+  };
+
+  const keys = Object.keys(STRATEGY_TYPE_SERIES_META);
+  const byKey = {};
+  keys.forEach((key) => {
+    byKey[key] = {
+      ...STRATEGY_TYPE_SERIES_META[key],
+      quarterlyDraw: [],
+      cumulativeDraw: [],
+      rvpi: [],
+      navPct: []
+    };
+  });
+
+  const quarters = [];
+  const runningDraw = Object.fromEntries(keys.map((key) => [key, 0]));
+  rows.slice(1).forEach((row) => {
+    const quarter = Number(String(row[idxQuarter] || '').trim());
+    if (!Number.isFinite(quarter) || quarter <= 0) return;
+    quarters.push(quarter);
+    keys.forEach((key) => {
+      const meta = STRATEGY_TYPE_SERIES_META[key];
+      const drawIdx = headers.findIndex((h) => h === meta.drawdownCol);
+      const rvpiIdx = headers.findIndex((h) => h === meta.rvpiCol);
+      const draw = drawIdx >= 0 ? parsePct(row[drawIdx]) : null;
+      const rvpi = rvpiIdx >= 0 ? parseMultiple(row[rvpiIdx]) : null;
+
+      if (draw !== null) runningDraw[key] += draw;
+      const cum = runningDraw[key];
+      const resolvedRvpi = rvpi ?? 0;
+      byKey[key].quarterlyDraw.push(draw ?? 0);
+      byKey[key].cumulativeDraw.push(cum);
+      byKey[key].rvpi.push(resolvedRvpi);
+      byKey[key].navPct.push(cum * resolvedRvpi);
+    });
+  });
+
+  if (!quarters.length) return null;
+  return { quarters, byKey, keys };
+};
+
+const useStrategyTypeSchedule = () => {
+  const [scheduleData, setScheduleData] = useState(null);
+  const [loadError, setLoadError] = useState('');
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      const base = (import.meta && import.meta.env && import.meta.env.BASE_URL) || '/';
+      const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+      const candidates = [
+        `${normalizedBase}strategy_type_schedule.csv`,
+        `${normalizedBase}Strategy_Type_Schedule.csv`,
+        '/strategy_type_schedule.csv'
+      ];
+      for (const path of candidates) {
+        try {
+          const res = await fetch(path, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const text = await res.text();
+          const parsed = parseStrategyTypeScheduleCsv(text);
+          if (parsed) {
+            if (active) {
+              setScheduleData(parsed);
+              setLoadError('');
+            }
+            return;
+          }
+        } catch (_) {
+          // Try next candidate path.
+        }
+      }
+      if (active) {
+        setScheduleData(null);
+        setLoadError('Strategy schedule data not found. Expected strategy_type_schedule.csv at site root.');
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return { scheduleData, loadError };
+};
+
 const RvpiVintageTrendChart = ({ height = 300 }) => {
   const canvasRef = useRef(null);
   const [rvpiData, setRvpiData] = useState(null);
@@ -2096,6 +2242,25 @@ const Header = ({ compactControls, onToggleCompactControls, activePage, onNaviga
     </header>
   );
 };
+
+const StickyContactPrompt = () => (
+  <a
+    className="sticky-contact-cta"
+    href="mailto:newinvestors@pathwaycapital.com?subject=Pathway%20Education%20Inquiry"
+    aria-label="Contact Pathway marketing"
+  >
+    <span className="sticky-contact-kicker">Talk to an expert</span>
+    <span className="sticky-contact-title">Reach out to Pathway</span>
+    <span className="sticky-contact-email">newinvestors@pathwaycapital.com</span>
+  </a>
+);
+
+const PathwayInlineCta = ({ line = 'Want to pressure-test this with an expert?' }) => (
+  <div className="pathway-inline-cta">
+    <span>{line}</span>{' '}
+    <a href="mailto:newinvestors@pathwaycapital.com">Contact Pathway at newinvestors@pathwaycapital.com</a>.
+  </div>
+);
 
 const HeroGrossNetGraph = () => {
   const canvasRef = useRef(null);
@@ -7644,64 +7809,95 @@ const PortfolioLayeringSection = ({ globalGrossMultiple, onGrossMultipleChange }
 const PortfolioStrategyCurvesSection = () => {
   const [strategyA, setStrategyA] = useState('buyout');
   const [strategyB, setStrategyB] = useState('venture');
-  const [metricView, setMetricView] = useState('drawdown');
+  const [metricView, setMetricView] = useState('nav');
+  const { scheduleData, loadError } = useStrategyTypeSchedule();
 
-  const curveA = useMemo(() => {
-    const strategy = PORTFOLIO_STRATEGY_CURVES[strategyA];
-    return buildAnnualGrossCurve(strategy.fundLife, strategy.investmentPeriod, strategy.grossMultiple);
-  }, [strategyA]);
-  const curveB = useMemo(() => {
-    const strategy = PORTFOLIO_STRATEGY_CURVES[strategyB];
-    return buildAnnualGrossCurve(strategy.fundLife, strategy.investmentPeriod, strategy.grossMultiple);
-  }, [strategyB]);
+  const keys = scheduleData?.keys || Object.keys(STRATEGY_TYPE_SERIES_META);
+  const seriesAData = scheduleData?.byKey?.[strategyA];
+  const seriesBData = scheduleData?.byKey?.[strategyB];
+  const quarters = scheduleData?.quarters || [];
+  const length = quarters.length;
+  const seriesA = useMemo(() => {
+    if (!seriesAData || !length) return [];
+    return metricView === 'nav' ? seriesAData.navPct.slice(0, length) : seriesAData.cumulativeDraw.slice(0, length);
+  }, [seriesAData, length, metricView]);
+  const seriesB = useMemo(() => {
+    if (!seriesBData || !length) return [];
+    return metricView === 'nav' ? seriesBData.navPct.slice(0, length) : seriesBData.cumulativeDraw.slice(0, length);
+  }, [seriesBData, length, metricView]);
+  const xLabels = useMemo(() => (
+    quarters.map((_, idx) => `Yr ${Math.floor(idx / 4)}`)
+  ), [quarters]);
+  const yFormatter = (value) => `${(value * 100).toFixed(0)}%`;
 
-  const maxYears = Math.max(
-    PORTFOLIO_STRATEGY_CURVES[strategyA].fundLife,
-    PORTFOLIO_STRATEGY_CURVES[strategyB].fundLife
-  );
-  const years = Array.from({ length: maxYears + 1 }, (_, i) => i);
-
-  const seriesA = years.map((year) => getCurvePointAtAge(curveA, year)[metricView]);
-  const seriesB = years.map((year) => getCurvePointAtAge(curveB, year)[metricView]);
-  const yearLabels = years.map((year) => `Yr ${year}`);
-
-  const yFormatter = metricView === 'drawdown' || metricView === 'nav'
-    ? (value) => `${(value * 100).toFixed(0)}%`
-    : (value) => `${value.toFixed(2)}x`;
-
-  const findYearAtDraw80 = (curve) => {
-    const row = curve.find((point) => point.drawdown >= 0.8);
-    return row ? row.year : curve[curve.length - 1].year;
+  const findQuarterAtDraw80 = (curve) => {
+    if (!curve || !curve.cumulativeDraw?.length) return null;
+    const idx = curve.cumulativeDraw.findIndex((value) => value >= 0.8);
+    return idx >= 0 ? idx + 1 : null;
   };
-  const navDuration = (curve) => {
-    const peak = Math.max(...curve.map((point) => point.nav));
-    const threshold = peak * 0.5;
-    const hit = curve.find((point, idx) => idx > 0 && point.nav <= threshold);
-    return hit ? hit.year : curve[curve.length - 1].year;
+
+  const findPeakNav = (curve) => {
+    if (!curve || !curve.navPct?.length) return { quarter: null, value: 0 };
+    let bestIdx = 0;
+    for (let i = 1; i < curve.navPct.length; i++) {
+      if (curve.navPct[i] > curve.navPct[bestIdx]) bestIdx = i;
+    }
+    return { quarter: bestIdx + 1, value: curve.navPct[bestIdx] || 0 };
   };
+
+  const navHalfLife = (curve) => {
+    if (!curve || !curve.navPct?.length) return null;
+    const peak = findPeakNav(curve);
+    if (!peak.quarter || peak.value <= 0) return null;
+    const threshold = peak.value * 0.5;
+    for (let i = peak.quarter; i < curve.navPct.length; i++) {
+      if (curve.navPct[i] <= threshold) return i + 1;
+    }
+    return null;
+  };
+
+  const formatQuarterAsYear = (quarter) => {
+    if (!Number.isFinite(quarter) || quarter <= 0) return 'N/A';
+    const years = quarter / 4;
+    return Math.abs(years - Math.round(years)) < 0.05 ? `Yr ${Math.round(years)}` : `Yr ${years.toFixed(1)}`;
+  };
+
+  const draw80A = seriesAData ? findQuarterAtDraw80(seriesAData) : null;
+  const draw80B = seriesBData ? findQuarterAtDraw80(seriesBData) : null;
+  const peakA = seriesAData ? findPeakNav(seriesAData) : { quarter: null, value: 0 };
+  const peakB = seriesBData ? findPeakNav(seriesBData) : { quarter: null, value: 0 };
+  const halfLifeA = seriesAData ? navHalfLife(seriesAData) : null;
+  const halfLifeB = seriesBData ? navHalfLife(seriesBData) : null;
 
   return (
     <section id="portfolio-strategies" className="content-section">
-      <h2>5. Strategy-Specific Curves</h2>
+      <h2>5. Strategy/Investment-Type Curve Considerations</h2>
       <p>
         Not all strategies behave the same. Some draw quickly and recycle value faster; others
         build NAV more slowly and keep it outstanding for longer.
       </p>
+      <p>
+        Toggle two different strategies/types below to compare how they might affect your portfolio.
+      </p>
       <div className="interactive-block">
+        {!scheduleData ? (
+          <p className="portfolio-inline-note">{loadError || 'Loading strategy and investment-type curves...'}</p>
+        ) : (
+          <>
         <div className="portfolio-select-grid">
           <div className="environment-toolbar-group">
             <span className="environment-toolbar-label">Strategy A</span>
             <select className="environment-select" value={strategyA} onChange={(e) => setStrategyA(e.target.value)}>
-              {Object.entries(PORTFOLIO_STRATEGY_CURVES).map(([key, value]) => (
-                <option key={key} value={key}>{value.label}</option>
+              {keys.map((key) => (
+                <option key={key} value={key}>{STRATEGY_TYPE_SERIES_META[key]?.label || key}</option>
               ))}
             </select>
           </div>
           <div className="environment-toolbar-group">
             <span className="environment-toolbar-label">Strategy B</span>
             <select className="environment-select" value={strategyB} onChange={(e) => setStrategyB(e.target.value)}>
-              {Object.entries(PORTFOLIO_STRATEGY_CURVES).map(([key, value]) => (
-                <option key={key} value={key}>{value.label}</option>
+              {keys.map((key) => (
+                <option key={key} value={key}>{STRATEGY_TYPE_SERIES_META[key]?.label || key}</option>
               ))}
             </select>
           </div>
@@ -7709,9 +7905,8 @@ const PortfolioStrategyCurvesSection = () => {
             <span className="environment-toolbar-label">Metric</span>
             <ToggleSwitch
               options={[
-                { label: 'Drawdown %', value: 'drawdown' },
-                { label: 'NAV %', value: 'nav' },
-                { label: 'TVPI', value: 'tvpi' }
+                { label: 'NAV % of Commitment', value: 'nav' },
+                { label: 'Drawdown % of Commitment', value: 'drawdown' }
               ]}
               value={metricView}
               onChange={setMetricView}
@@ -7722,37 +7917,80 @@ const PortfolioStrategyCurvesSection = () => {
 
         <div className="metrics-row">
           <MetricCard
-            label={`${PORTFOLIO_STRATEGY_CURVES[strategyA].label}: 80% Draw`}
-            value={`Yr ${findYearAtDraw80(curveA)}`}
+            label={`${seriesAData?.label || strategyA}: 80% Draw`}
+            value={formatQuarterAsYear(draw80A)}
             subtext="Capital deployment pace"
-            accent={PORTFOLIO_STRATEGY_CURVES[strategyA].color}
+            accent={seriesAData?.color || '#1B2A4A'}
           />
           <MetricCard
-            label={`${PORTFOLIO_STRATEGY_CURVES[strategyB].label}: 80% Draw`}
-            value={`Yr ${findYearAtDraw80(curveB)}`}
+            label={`${seriesBData?.label || strategyB}: 80% Draw`}
+            value={formatQuarterAsYear(draw80B)}
             subtext="Capital deployment pace"
-            accent={PORTFOLIO_STRATEGY_CURVES[strategyB].color}
+            accent={seriesBData?.color || '#2D6B4F'}
           />
           <MetricCard
-            label="Approx NAV Half-Life"
-            value={`${navDuration(curveA)}y / ${navDuration(curveB)}y`}
-            subtext="Year when NAV falls below half of peak"
+            label="Peak NAV (% of Commitment)"
+            value={`${(peakA.value * 100).toFixed(0)}% / ${(peakB.value * 100).toFixed(0)}%`}
+            subtext={`${seriesAData?.label || 'A'} peaks ${formatQuarterAsYear(peakA.quarter)}, ${seriesBData?.label || 'B'} peaks ${formatQuarterAsYear(peakB.quarter)}`}
             accent="#1B2A4A"
+          />
+          <MetricCard
+            label="NAV Half-Life"
+            value={`${formatQuarterAsYear(halfLifeA)} / ${formatQuarterAsYear(halfLifeB)}`}
+            subtext="When NAV falls below 50% of peak value"
+            accent="#B5473A"
           />
         </div>
 
         <ComparisonChart
           seriesA={seriesA}
           seriesB={seriesB}
-          labelA={PORTFOLIO_STRATEGY_CURVES[strategyA].label}
-          labelB={PORTFOLIO_STRATEGY_CURVES[strategyB].label}
-          xLabels={yearLabels}
-          xTickStep={2}
+          labelA={seriesAData?.label || strategyA}
+          labelB={seriesBData?.label || strategyB}
+          xLabels={xLabels}
+          xTickStep={4}
           yFormatter={yFormatter}
-          colorA={PORTFOLIO_STRATEGY_CURVES[strategyA].color}
-          colorB={PORTFOLIO_STRATEGY_CURVES[strategyB].color}
+          colorA={seriesAData?.color || '#1B2A4A'}
+          colorB={seriesBData?.color || '#2D6B4F'}
           height={260}
         />
+        <p className="portfolio-inline-note">
+          Percentage metrics in this section are shown as a share of committed capital.
+        </p>
+        <div className="portfolio-commentary-block">
+          <h3 className="portfolio-commentary-title">Commentary</h3>
+          <table className="portfolio-commentary-table">
+            <tbody>
+              {keys.map((key) => {
+                const meta = STRATEGY_TYPE_SERIES_META[key];
+                return (
+                  <tr key={key}>
+                    <th scope="row">{meta.label}</th>
+                    <td>{meta.commentary}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        <NuanceDisclosure
+          title="Final Thought"
+          summary="These paths are directional guides for modeling behavior by strategy and type."
+        >
+          <p>
+            These are illustrative projections for one example investment in each strategy/type.
+            In practice, secondaries are often purchased much later in a fund life, which can make
+            RVPI run off faster than shown here.
+          </p>
+          <p>
+            We also model a hypothetical single direct-equity investment, while a diversified direct-equity
+            portfolio will usually look different. The key point is that each investment type can behave
+            differently and should be modeled independently.
+          </p>
+        </NuanceDisclosure>
+        <PathwayInlineCta line="Want help mapping these curve behaviors to your actual commitment plan?" />
+        </>
+        )}
       </div>
     </section>
   );
@@ -7829,11 +8067,43 @@ const PortfolioTargetingSection = () => {
 
   return (
     <section id="portfolio-targeting" className="content-section">
-      <h2>7. Target Exposure Planning for a Pension Plan</h2>
+      <h2>7. Chasing Exposure Targets</h2>
       <p>
-        Hitting a target PE allocation is dynamic. Existing NAV runs off, plan assets (the denominator)
-        change over time, and commitment pacing must adapt as both move.
+        Assuming we have a general baseline for how to project our future exposure to a reasonable degree
+        of accuracy, planning how you get there leads to the next set of questions.
       </p>
+      <div className="interactive-block">
+        <div className="portfolio-targeting-kicker">Questions to pressure-test before setting a pacing plan</div>
+        <ul className="portfolio-targeting-questions">
+          <li>How fast do you want (need?) to achieve your target?</li>
+          <li>How wide is your target range?</li>
+          <li>What investment strategies and types are you capable of pursuing?</li>
+          <li>Will your strategy/type mix change over time?</li>
+          <li>How sensitive are you to exceeding your target? Falling short?</li>
+          <li>What tools are you comfortable with executing (e.g., secondary sales) to actively manage your exposure?</li>
+          <li>Are you committed to consistently investing or do you want to try to time the market?</li>
+          <li>What is the growth rate of your underlying portfolio?</li>
+        </ul>
+        <div className="portfolio-targeting-manager-callout">
+          <strong>Manager Check:</strong> Make sure your manager has good answers to these questions.
+        </div>
+        <p className="portfolio-inline-note">
+          These are all important considerations you should work with your team or investment manager
+          to understand, because they each have a massive impact on how you approach PE.
+        </p>
+        <p className="portfolio-inline-note">
+          One thing I'd like to note is that we (at Pathway) often see folks think about exposure
+          targets as a discrete number. Clients work with a consultant to figure out a target, but one
+          that applies to their current total portfolio NAV. A diversified PE portfolio takes time to
+          develop, and so by the time you reach your expected dollar exposure, the denominator that was
+          relevant at the outset has changed, sometimes materially.
+        </p>
+        <p className="portfolio-inline-note">
+          A key part of the trip here is to understand your target exposure relative to the rest of your
+          portfolio, how all the other variables might change, and how sensitive you are to those changes.
+        </p>
+      </div>
+
       <div className="interactive-block">
         <div className="sliders-grid">
           <Slider label="Plan Assets Today" value={planAssetsB} min={5} max={60} step={0.5} format={(v) => `${formatCurrency(v * 1e9, 0)}`} onChange={setPlanAssetsB} accent="#1B2A4A" />
@@ -7885,6 +8155,8 @@ const PortfolioTargetingSection = () => {
           height={250}
         />
       </div>
+
+      <PathwayInlineCta line="Need a second set of eyes on exposure pacing and denominator risk?" />
     </section>
   );
 };
@@ -7893,6 +8165,7 @@ const PortfolioTypesSection = () => {
   const [secondaryPct, setSecondaryPct] = useState(0.2);
   const [directPct, setDirectPct] = useState(0.1);
   const [annualCommitmentM, setAnnualCommitmentM] = useState(200);
+  const { scheduleData, loadError } = useStrategyTypeSchedule();
 
   const setSecondarySafe = (value) => {
     const bounded = Math.min(0.75, Math.max(0, value));
@@ -7906,52 +8179,79 @@ const PortfolioTypesSection = () => {
   };
 
   const primaryPct = Math.max(0, 1 - secondaryPct - directPct);
-  const horizonYears = 12;
-  const years = Array.from({ length: horizonYears + 1 }, (_, i) => i);
 
-  const primaryCurve = useMemo(() => buildAnnualGrossCurve(
-    PORTFOLIO_STRATEGY_CURVES.buyout.fundLife,
-    PORTFOLIO_STRATEGY_CURVES.buyout.investmentPeriod,
-    PORTFOLIO_STRATEGY_CURVES.buyout.grossMultiple
-  ), []);
-  const secondaryCurve = useMemo(() => buildAnnualGrossCurve(
-    PORTFOLIO_STRATEGY_CURVES.secondary.fundLife,
-    PORTFOLIO_STRATEGY_CURVES.secondary.investmentPeriod,
-    PORTFOLIO_STRATEGY_CURVES.secondary.grossMultiple
-  ), []);
-  const directCurve = useMemo(() => buildAnnualGrossCurve(
-    PORTFOLIO_STRATEGY_CURVES.direct.fundLife,
-    PORTFOLIO_STRATEGY_CURVES.direct.investmentPeriod,
-    PORTFOLIO_STRATEGY_CURVES.direct.grossMultiple
-  ), []);
+  const annualCurves = useMemo(() => {
+    if (!scheduleData?.byKey || !scheduleData?.quarters?.length) return null;
+    const quarterCount = scheduleData.quarters.length;
+    const horizonYears = Math.max(1, Math.floor(quarterCount / 4));
+
+    const annualize = (key) => {
+      const curve = scheduleData.byKey[key];
+      if (!curve) return { draw: [0], nav: [0] };
+      const draw = [0];
+      const nav = [0];
+      for (let year = 1; year <= horizonYears; year++) {
+        const idx = Math.min(curve.cumulativeDraw.length - 1, year * 4 - 1);
+        draw.push(curve.cumulativeDraw[idx] || 0);
+        nav.push(curve.navPct[idx] || 0);
+      }
+      return { draw, nav };
+    };
+
+    return {
+      horizonYears,
+      primary: annualize('buyout'),
+      secondary: annualize('secondary'),
+      direct: annualize('direct')
+    };
+  }, [scheduleData]);
+
+  const horizonYears = annualCurves?.horizonYears || 15;
+  const years = useMemo(() => Array.from({ length: horizonYears + 1 }, (_, i) => i), [horizonYears]);
 
   const mixSeries = useMemo(() => {
+    if (!annualCurves) return { called: [], nav: [], allPrimaryNav: [] };
     const called = [];
     const nav = [];
     const allPrimaryNav = [];
+    const getAt = (arr, year) => {
+      if (!arr?.length) return 0;
+      const idx = Math.max(0, Math.min(arr.length - 1, year));
+      return arr[idx] || 0;
+    };
+
     years.forEach((year) => {
-      const p = getCurvePointAtAge(primaryCurve, year);
-      const s = getCurvePointAtAge(secondaryCurve, year);
-      const d = getCurvePointAtAge(directCurve, year);
-      called.push(primaryPct * p.drawdown + secondaryPct * s.drawdown + directPct * d.drawdown);
-      nav.push(primaryPct * p.nav + secondaryPct * s.nav + directPct * d.nav);
-      allPrimaryNav.push(p.nav);
+      const pDraw = getAt(annualCurves.primary.draw, year);
+      const sDraw = getAt(annualCurves.secondary.draw, year);
+      const dDraw = getAt(annualCurves.direct.draw, year);
+      const pNav = getAt(annualCurves.primary.nav, year);
+      const sNav = getAt(annualCurves.secondary.nav, year);
+      const dNav = getAt(annualCurves.direct.nav, year);
+
+      called.push(primaryPct * pDraw + secondaryPct * sDraw + directPct * dDraw);
+      nav.push(primaryPct * pNav + secondaryPct * sNav + directPct * dNav);
+      allPrimaryNav.push(pNav);
     });
     return { called, nav, allPrimaryNav };
-  }, [years, primaryCurve, secondaryCurve, directCurve, primaryPct, secondaryPct, directPct]);
+  }, [years, annualCurves, primaryPct, secondaryPct, directPct]);
 
-  const year1CallM = mixSeries.called[1] * annualCommitmentM;
-  const year1NavM = mixSeries.nav[1] * annualCommitmentM;
-  const residualYear10M = mixSeries.nav[10] * annualCommitmentM;
+  const year1CallM = (mixSeries.called[1] || 0) * annualCommitmentM;
+  const year1NavM = (mixSeries.nav[1] || 0) * annualCommitmentM;
+  const residualYearIndex = Math.min(10, Math.max(0, mixSeries.nav.length - 1));
+  const residualYear10M = (mixSeries.nav[residualYearIndex] || 0) * annualCommitmentM;
 
   return (
     <section id="portfolio-types" className="content-section">
-      <h2>6. Investment Type Mix: Primaries, Secondaries, Direct Equity</h2>
+      <h2>6. Blending Investment Types and Strategies: a Dynamic Effect</h2>
       <p>
         Different investment types change both deployment speed and NAV duration. Secondaries and
         direct equity can put capital to work faster, but they typically season faster too.
       </p>
       <div className="interactive-block">
+        {!scheduleData ? (
+          <p className="portfolio-inline-note">{loadError || 'Loading strategy and investment-type curves...'}</p>
+        ) : (
+          <>
         <div className="sliders-grid">
           <Slider label="Secondary Allocation" value={secondaryPct} min={0} max={0.75} step={0.01} format={(v) => formatPercent(v, 0)} onChange={setSecondarySafe} accent="#A8892E" />
           <Slider label="Direct Equity Allocation" value={directPct} min={0} max={0.75} step={0.01} format={(v) => formatPercent(v, 0)} onChange={setDirectSafe} accent="#B5473A" />
@@ -7997,6 +8297,12 @@ const PortfolioTypesSection = () => {
           colorB="#9A9690"
           height={250}
         />
+        <p className="portfolio-inline-note">
+          Makes sense? Unfortunately the above blends really only show you the hypothetical mix of these
+          selections, and they only represent how a single year of commitments develop. There is more to go!
+        </p>
+          </>
+        )}
       </div>
     </section>
   );
@@ -8464,11 +8770,11 @@ const PortfolioFutureForecastSection = () => {
         </div>
 
         <div className="portfolio-funnel-proprietary">
-          <div className="portfolio-funnel-proprietary-title">Why this should highlight Pathway expertise</div>
+          <div className="portfolio-funnel-proprietary-title">Pathway&apos;s Expertise</div>
           <p>
-            Benchmark medians are useful, but they can only narrow the funnel so far. The second chart is where
-            Pathway can demonstrate edge by grounding assumptions in proprietary manager-level historical NAV and
-            cash-flow behavior. Replace the placeholder range endpoints with final internal values before publication.
+            Benchmark data is useful, but it can only narrow the funnel so far. Pathway can
+            tighten these ranges further by grounding assumptions in proprietary manager-level
+            historical NAV and cash-flow behavior.
           </p>
         </div>
 
@@ -8562,27 +8868,72 @@ const PortfolioFutureForecastSection = () => {
   );
 };
 
+const PortfolioAdjustingExposureSection = () => (
+  <section id="portfolio-adjusting" className="content-section">
+    <h2>8. Adjusting Exposure</h2>
+    <p>
+      Moving your exposure to PE up and down is easy, but there are serious consequences to consider.
+      We&apos;ll keep this simple for now.
+    </p>
+
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Increasing Exposure Quickly</h3>
+        <p>
+          Invest in secondaries and co-investments to deploy capital faster. That can accelerate exposure,
+          but it is still a market call at a discrete point in time and subject to current pricing.
+        </p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Reducing Exposure Quickly</h3>
+        <p>
+          Sell assets in a secondary transaction to create immediate liquidity. In most cases, this process
+          is inefficient and may realize less cash than your current marks.
+        </p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Pathway&apos;s Practical View</h3>
+        <p>
+          Manage exposure actively at least annually so you are not forced into timing calls that are
+          disconnected from portfolio quality or underlying performance.
+        </p>
+      </div>
+    </div>
+    <PathwayInlineCta line="Thinking about accelerating or reducing exposure now?" />
+  </section>
+);
+
 const PortfolioRiffsSection = () => (
   <section id="portfolio-riffs" className="content-section">
-    <h2>Riffs: What Else Matters in Real Programs</h2>
+    <h2>9. Put This Into Action With Pathway</h2>
     <p>
-      The mechanics above are the base layer. In actual portfolio construction, pacing policy and
-      governance determine whether target exposure is resilient through market cycles.
+      The mechanics above are the base layer. The hard part is executing a repeatable program with
+      governance, pacing, and liquidity discipline through real market cycles.
     </p>
 
     <div className="liquidity-callout-grid">
       <div className="liquidity-callout">
         <h3>Commitment Policy Bands</h3>
-        <p>Most programs benefit from a rules-based commitment band tied to funded status and denominator volatility.</p>
+        <p>Design rules-based commitment bands tied to funded status, pacing ranges, and denominator volatility.</p>
       </div>
       <div className="liquidity-callout">
         <h3>Liquidity Shock Protocol</h3>
-        <p>Predefine actions for a denominator shock: pacing cut, strategy rotation, secondaries, or temporary holdback.</p>
+        <p>Predefine actions for denominator shocks: pacing cuts, strategy rotation, secondary sales, or holdbacks.</p>
       </div>
       <div className="liquidity-callout">
-        <h3>Vintage Diversification</h3>
-        <p>Vintage balance is often as important as manager selection for keeping NAV and distributions stable.</p>
+        <h3>Portfolio Construction Discipline</h3>
+        <p>Balance vintages, strategies, and liquidity tools to keep exposure resilient without chasing markets.</p>
       </div>
+    </div>
+
+    <div className="portfolio-riffs-cta">
+      <div className="portfolio-riffs-cta-title">Want help applying this to your portfolio?</div>
+      <p>
+        You can learn more in our{' '}
+        <a href="#liquidity-hero">Liquidity Management section</a>{' '}
+        or reach out directly at{' '}
+        <a href="mailto:newinvestors@pathwaycapital.com">newinvestors@pathwaycapital.com</a>.
+      </p>
     </div>
 
     <WhatWeDidntCover
@@ -8972,6 +9323,54 @@ export default function App() {
             width: 34px;
             height: 34px;
           }
+
+          .sticky-contact-cta {
+            display: none;
+          }
+        }
+
+        .sticky-contact-cta {
+          position: fixed;
+          right: 16px;
+          bottom: 16px;
+          z-index: 120;
+          display: grid;
+          gap: 1px;
+          min-width: 230px;
+          text-decoration: none;
+          color: #ffffff;
+          background: linear-gradient(180deg, #1B2A4A 0%, #0F1B33 100%);
+          border: 1px solid rgba(255, 255, 255, 0.26);
+          border-radius: 12px;
+          padding: 10px 12px;
+          box-shadow: 0 14px 30px rgba(8, 18, 35, 0.35);
+          transition: transform 0.18s ease, box-shadow 0.18s ease;
+        }
+
+        .sticky-contact-cta:hover {
+          transform: translateY(-1px);
+          box-shadow: 0 18px 36px rgba(8, 18, 35, 0.4);
+        }
+
+        .sticky-contact-kicker {
+          font-size: 10px;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          color: rgba(255, 255, 255, 0.72);
+          font-weight: 600;
+        }
+
+        .sticky-contact-title {
+          font-size: 14px;
+          font-weight: 600;
+          color: #ffffff;
+          letter-spacing: 0.1px;
+        }
+
+        .sticky-contact-email {
+          font-size: 12px;
+          color: #C9A84C;
+          font-weight: 500;
         }
 
         /* Master Dashboard */
@@ -9831,6 +10230,149 @@ export default function App() {
           margin: 6px 0 14px;
           font-size: 13px;
           color: #4F5B72;
+        }
+
+        .portfolio-targeting-questions {
+          margin: 4px 0 14px;
+          padding-left: 0;
+          list-style: none;
+          display: grid;
+          gap: 6px;
+          color: #2E3F5E;
+          font-size: 15px;
+          line-height: 1.5;
+        }
+
+        .portfolio-targeting-kicker {
+          font-size: 12px;
+          text-transform: uppercase;
+          letter-spacing: 0.8px;
+          font-weight: 600;
+          color: #5B6983;
+          margin-bottom: 8px;
+        }
+
+        .portfolio-targeting-questions li {
+          border: 1px solid #DCE3EE;
+          border-radius: 9px;
+          background: #FBFCFF;
+          padding: 9px 10px;
+        }
+
+        .portfolio-targeting-manager-callout {
+          margin: 8px 0 12px;
+          border: 1px solid rgba(27, 42, 74, 0.22);
+          border-left: 4px solid #1B2A4A;
+          border-radius: 10px;
+          background: rgba(27, 42, 74, 0.06);
+          padding: 10px 12px;
+          font-size: 14px;
+          color: #2E3F5E;
+          line-height: 1.45;
+        }
+
+        .pathway-inline-cta {
+          margin: 12px 0 2px;
+          border: 1px solid #D6DFEC;
+          border-radius: 10px;
+          background: linear-gradient(180deg, #FBFDFF 0%, #F4F8FD 100%);
+          padding: 10px 12px;
+          font-size: 13px;
+          color: #44526B;
+        }
+
+        .pathway-inline-cta a {
+          color: #1B2A4A;
+          text-decoration: none;
+          border-bottom: 1px solid rgba(27, 42, 74, 0.35);
+          font-weight: 600;
+        }
+
+        .pathway-inline-cta a:hover {
+          color: #A8892E;
+          border-bottom-color: rgba(168, 137, 46, 0.6);
+        }
+
+        .portfolio-commentary-block {
+          margin-top: 12px;
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          background: #FBFCFF;
+          padding: 12px;
+        }
+
+        .portfolio-commentary-title {
+          margin: 0 0 8px;
+          font-size: 14px;
+          font-weight: 600;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          color: #415574;
+        }
+
+        .portfolio-commentary-table {
+          width: 100%;
+          border-collapse: collapse;
+        }
+
+        .portfolio-commentary-table th,
+        .portfolio-commentary-table td {
+          border-top: 1px solid #E6ECF5;
+          padding: 7px 8px;
+          text-align: left;
+          vertical-align: top;
+          font-size: 13px;
+          line-height: 1.45;
+        }
+
+        .portfolio-commentary-table tr:first-child th,
+        .portfolio-commentary-table tr:first-child td {
+          border-top: none;
+        }
+
+        .portfolio-commentary-table th {
+          width: 180px;
+          color: #1B2A4A;
+          font-weight: 600;
+        }
+
+        .portfolio-commentary-table td {
+          color: #4F5B72;
+          font-weight: 400;
+        }
+
+        .portfolio-riffs-cta {
+          margin: 16px 0 8px;
+          border: 1px solid rgba(27, 42, 74, 0.2);
+          border-radius: 10px;
+          background: linear-gradient(180deg, #FAFCFF 0%, #F3F8FE 100%);
+          padding: 12px 14px;
+          color: #2E3F5E;
+        }
+
+        .portfolio-riffs-cta-title {
+          font-size: 15px;
+          font-weight: 600;
+          color: #1B2A4A;
+          margin-bottom: 4px;
+        }
+
+        .portfolio-riffs-cta p {
+          margin: 0;
+          font-size: 14px;
+          line-height: 1.55;
+        }
+
+        .portfolio-riffs-cta a {
+          color: #1B2A4A;
+          text-decoration: none;
+          border-bottom: 1px solid rgba(27, 42, 74, 0.35);
+          font-weight: 600;
+        }
+
+        .portfolio-riffs-cta a:hover {
+          color: #A8892E;
+          border-bottom-color: rgba(168, 137, 46, 0.5);
         }
 
         .portfolio-important-callout {
@@ -12379,6 +12921,10 @@ export default function App() {
             grid-template-columns: 1fr;
           }
 
+          .portfolio-commentary-table th {
+            width: 140px;
+          }
+
           .portfolio-lifecycle-stage-grid {
             grid-template-columns: repeat(2, minmax(0, 1fr));
           }
@@ -12435,6 +12981,24 @@ export default function App() {
 
           .portfolio-mix-chips {
             gap: 6px;
+          }
+
+          .portfolio-commentary-table th,
+          .portfolio-commentary-table td {
+            display: block;
+            width: 100%;
+            padding: 6px 0;
+            border-top: none;
+          }
+
+          .portfolio-commentary-table tr {
+            display: block;
+            border-top: 1px solid #E6ECF5;
+            padding: 6px 0;
+          }
+
+          .portfolio-commentary-table tr:first-child {
+            border-top: none;
           }
 
           .portfolio-lifecycle-stage-grid {
@@ -12602,6 +13166,7 @@ export default function App() {
               <PortfolioStrategyCurvesSection />
               <PortfolioTypesSection />
               <PortfolioTargetingSection />
+              <PortfolioAdjustingExposureSection />
               <PortfolioRiffsSection />
               <PortfolioSourcesFooter />
             </>
@@ -12617,6 +13182,7 @@ export default function App() {
           )}
         </main>
       </div>
+      <StickyContactPrompt />
     </div>
   );
 }
