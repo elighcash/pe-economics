@@ -5625,6 +5625,13 @@ const UnderinvestingSection = ({
             Green stays at invested-basis gross MOIC; navy shows the translated commitment-basis
             gross TVPI as deployment changes.
           </p>
+          <p className="portfolio-inline-note">
+            <strong>Why does this matter?</strong> Imagine the extreme case where you commit $100M to a fund
+            and only $60M is actually invested. Even if that invested capital returns 3x with exceptional
+            gross performance, you still paid fees on the full $100M commitment. So the LP outcome can be
+            much weaker than the headline gross figure. A 3x on $60M, after fees and carry, can look more
+            like roughly a 1.4x net outcome to LPs.
+          </p>
         </div>
 
         <div className="metrics-row">
