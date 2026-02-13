@@ -71,3 +71,6 @@ Interactive educational web app for explaining how private market fund economics
 - Baseline assumptions currently anchor around:
   - gross MOIC `2.5x`
   - net TVPI `2.0x`
+
+## Maintenance note
+- Minor README update made on 2026-02-13.
