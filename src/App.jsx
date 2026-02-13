@@ -180,6 +180,17 @@ const PORTFOLIO_SECTION_LINKS = [
   { id: 'portfolio-riffs', label: 'Implementation Riffs' }
 ];
 
+const ASIA_SECTION_LINKS = [
+  { id: 'asia-hero', label: 'Asia PE Overview' },
+  { id: 'asia-why-now', label: 'Why Asia in PE' },
+  { id: 'asia-market-structure', label: 'Market Structure' },
+  { id: 'asia-dd', label: 'Manager Due Diligence' },
+  { id: 'asia-portfolio-design', label: 'Portfolio Design' },
+  { id: 'asia-execution-governance', label: 'Execution & Governance' },
+  { id: 'asia-red-flags', label: 'Red Flags' },
+  { id: 'asia-playbook', label: 'LP Playbook' }
+];
+
 const ENVIRONMENT_REPORT_FILE = 'pathway-4q25-private-market-environment-report.pdf';
 const ENVIRONMENT_REPORT_PAGE_COUNT = 48;
 
@@ -2078,6 +2089,27 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
         dashed: true
       });
 
+      const OUTLIER_THRESHOLD = 1.7;
+      const outlierPoints = [];
+      rvpiData.lines.forEach((line) => {
+        line.points.forEach((point) => {
+          if (point.quarter <= maxQuarterFloat && point.value > OUTLIER_THRESHOLD) {
+            outlierPoints.push(point);
+          }
+        });
+      });
+
+      if (outlierPoints.length) {
+        ctx.save();
+        ctx.fillStyle = 'rgba(63, 108, 151, 0.45)';
+        outlierPoints.forEach((point) => {
+          ctx.beginPath();
+          ctx.arc(xForQuarter(point.quarter), yForValue(point.value), 2.2, 0, Math.PI * 2);
+          ctx.fill();
+        });
+        ctx.restore();
+      }
+
       if (progress > 0.96 && rvpiData.medianTrend.length) {
         const last = rvpiData.medianTrend[rvpiData.medianTrend.length - 1];
         const lx = xForQuarter(last.quarter);
@@ -2094,6 +2126,55 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
         ctx.fillStyle = '#1B2A4A';
         ctx.textAlign = 'left';
         ctx.fillText(label, bx + 5, by + 11);
+      }
+
+      if (progress > 0.96 && outlierPoints.length) {
+        const anchor = outlierPoints.reduce((best, point) => (point.value > best.value ? point : best), outlierPoints[0]);
+        const ax = xForQuarter(anchor.quarter);
+        const ay = yForValue(anchor.value);
+
+        const line1 = 'these outliers correspond to certain';
+        const line2 = 'vintage RVPIs during the dot-com boom';
+        ctx.font = '600 12px Helvetica Neue';
+        const boxW = Math.max(ctx.measureText(line1).width, ctx.measureText(line2).width) + 12;
+        const boxH = 30;
+
+        const placeRight = ax < padding.left + chartWidth * 0.55;
+        const bx = placeRight
+          ? Math.min(width - padding.right - boxW, ax + 16)
+          : Math.max(padding.left + 6, ax - boxW - 16);
+        const by = Math.max(padding.top + 6, Math.min(ay - boxH - 10, padding.top + chartHeight - boxH - 8));
+        const targetX = placeRight ? bx : bx + boxW;
+        const targetY = by + boxH * 0.5;
+
+        ctx.save();
+        ctx.strokeStyle = 'rgba(63, 108, 151, 0.85)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(targetX, targetY);
+        ctx.lineTo(ax, ay);
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.arc(ax, ay, 3.2, 0, Math.PI * 2);
+        ctx.fillStyle = '#1B2A4A';
+        ctx.fill();
+        ctx.lineWidth = 1.1;
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.97)';
+        ctx.fillRect(bx, by, boxW, boxH);
+        ctx.strokeStyle = 'rgba(63, 108, 151, 0.45)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(bx, by, boxW, boxH);
+
+        ctx.fillStyle = '#1B2A4A';
+        ctx.font = '600 12px Helvetica Neue';
+        ctx.textAlign = 'left';
+        ctx.fillText(line1, bx + 6, by + 12);
+        ctx.fillText(line2, bx + 6, by + 24);
+        ctx.restore();
       }
 
       ctx.fillStyle = '#5F687A';
@@ -2225,11 +2306,25 @@ const Header = ({ compactControls, onToggleCompactControls, activePage, onNaviga
                 </button>
                 <button
                   type="button"
+                  className={`header-menu-item ${activePage === 'asia' ? 'active' : ''}`}
+                  onClick={() => handleNavigate('asia')}
+                >
+                  Investing in Asia PE
+                </button>
+                <button
+                  type="button"
                   className={`header-menu-item ${activePage === 'environment' ? 'active' : ''}`}
                   onClick={() => handleNavigate('environment')}
                 >
                   Market Environment
                 </button>
+                <a
+                  className="header-menu-item header-menu-link"
+                  href="mailto:newinvestors@pathwaycapital.com?subject=Pathway%20Education%20Inquiry"
+                  onClick={() => setMenuOpen(false)}
+                >
+                  Contact Pathway
+                </a>
                 <div className="header-menu-divider" />
                 <button type="button" className="header-menu-item" onClick={handleToggleCompact}>
                   Compact Controls: {compactControls ? 'On' : 'Off'}
@@ -2243,17 +2338,51 @@ const Header = ({ compactControls, onToggleCompactControls, activePage, onNaviga
   );
 };
 
-const StickyContactPrompt = () => (
-  <a
-    className="sticky-contact-cta"
-    href="mailto:newinvestors@pathwaycapital.com?subject=Pathway%20Education%20Inquiry"
-    aria-label="Contact Pathway marketing"
-  >
-    <span className="sticky-contact-kicker">Talk to an expert</span>
-    <span className="sticky-contact-title">Reach out to Pathway</span>
-    <span className="sticky-contact-email">newinvestors@pathwaycapital.com</span>
-  </a>
-);
+const StickyContactPrompt = ({ activePage }) => {
+  const [collapsed, setCollapsed] = useState(false);
+  if (activePage === 'environment') return null;
+
+  const pageCopy = activePage === 'portfolio'
+    ? { kicker: 'Portfolio construction support', title: 'Talk to Pathway about pacing and exposure' }
+    : activePage === 'liquidity'
+      ? { kicker: 'Liquidity strategy support', title: 'Talk to Pathway about liquidity planning' }
+      : activePage === 'asia'
+        ? { kicker: 'Asia private equity support', title: 'Talk to Pathway about Asia PE portfolio design' }
+      : { kicker: 'Private markets economics support', title: 'Talk to Pathway about gross-to-net outcomes' };
+  const subject = `Pathway Education Inquiry - ${activePage || 'economics'}`;
+  const href = `mailto:newinvestors@pathwaycapital.com?subject=${encodeURIComponent(subject)}`;
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        className="sticky-contact-mini"
+        onClick={() => setCollapsed(false)}
+        aria-label="Open Pathway contact prompt"
+      >
+        Talk to Pathway
+      </button>
+    );
+  }
+
+  return (
+    <div className="sticky-contact-cta" role="complementary" aria-label="Pathway contact prompt">
+      <button
+        type="button"
+        className="sticky-contact-close"
+        onClick={() => setCollapsed(true)}
+        aria-label="Minimize contact prompt"
+      >
+        ×
+      </button>
+      <a className="sticky-contact-link" href={href} aria-label="Contact Pathway new investors">
+        <span className="sticky-contact-kicker">{pageCopy.kicker}</span>
+        <span className="sticky-contact-title">{pageCopy.title}</span>
+        <span className="sticky-contact-email">newinvestors@pathwaycapital.com</span>
+      </a>
+    </div>
+  );
+};
 
 const PathwayInlineCta = ({ line = 'Want to pressure-test this with an expert?' }) => (
   <div className="pathway-inline-cta">
@@ -6196,6 +6325,7 @@ const ConclusionSection = () => (
         'Strategies to reduce management fees and carried interest, such as secondaries and direct equity investments.'
       ]}
     />
+    <PathwayInlineCta line="Want an expert review of your current PE terms and net-outcome assumptions?" />
 
     <div className="pathway-footer">
       <div className="pathway-logo">Pathway Capital</div>
@@ -6219,6 +6349,7 @@ const ConclusionSection = () => (
 
 const LiquidityHeroSection = () => (
   <section id="liquidity-hero" className="hero-section liquidity-hero">
+    <div className="draft-hero-banner">DRAFT - NOT FINAL</div>
     <div className="pathway-badge">Pathway Capital Education</div>
     <h1>Liquidity Management in Private Markets</h1>
     <p className="hero-subtitle">Two liquidity engines drive outcomes: normal-course exits and secondary market execution.</p>
@@ -6530,6 +6661,7 @@ const LiquidityToolkitSection = () => (
         <p>Model liquidity as a system-level decision: cash timing, pricing, and reinvestment capacity should be optimized together.</p>
       </div>
     </div>
+    <PathwayInlineCta line="Want to review liquidity options with a specialized private markets team?" />
   </section>
 );
 
@@ -6569,6 +6701,7 @@ const LiquidityToBeBuiltSection = () => (
 
 const EnvironmentHeroSection = () => (
   <section id="environment-hero" className="hero-section environment-hero">
+    <div className="draft-hero-banner">DRAFT - NOT FINAL</div>
     <div className="pathway-badge">Pathway Research</div>
     <h1>Private Market Environment</h1>
     <p className="hero-subtitle">Fourth Quarter 2025</p>
@@ -7996,55 +8129,168 @@ const PortfolioStrategyCurvesSection = () => {
   );
 };
 
-const PortfolioTargetingSection = () => {
-  const [planAssetsB, setPlanAssetsB] = useState(12);
-  const [targetPct, setTargetPct] = useState(0.12);
-  const [bandWidth, setBandWidth] = useState(0.015);
-  const [denominatorGrowth, setDenominatorGrowth] = useState(0.045);
-  const [existingNavB, setExistingNavB] = useState(1.0);
-  const [existingAge, setExistingAge] = useState(6);
-  const [annualCommitmentM, setAnnualCommitmentM] = useState(260);
-  const [commitGrowth, setCommitGrowth] = useState(0.03);
-  const [planningYears, setPlanningYears] = useState(12);
+const PORTFOLIO_TARGETING_BASE = {
+  planAssetsB: 12,
+  targetPct: 0.12,
+  bandWidth: 0.015,
+  denominatorGrowth: 0.045,
+  existingNavB: 1.0,
+  existingAge: 6,
+  annualCommitmentM: 260,
+  commitGrowth: 0.03,
+  planningYears: 12
+};
 
-  const annualCurve = useMemo(() => buildAnnualGrossCurve(12, 5, 2.5), []);
-  const projection = useMemo(() => {
-    const rows = [];
-    const existingStartPoint = getCurvePointAtAge(annualCurve, existingAge);
-    const existingStartNav = Math.max(1e-9, existingStartPoint.nav);
+const buildTargetExposureProjection = ({
+  annualCurve,
+  planAssetsB,
+  denominatorGrowth,
+  existingNavB,
+  existingAge,
+  annualCommitmentM,
+  commitGrowth,
+  planningYears,
+  targetPct
+}) => {
+  const rows = [];
+  const existingStartPoint = getCurvePointAtAge(annualCurve, existingAge);
+  const existingStartNav = Math.max(1e-9, existingStartPoint.nav);
 
-    for (let year = 0; year <= planningYears; year++) {
-      const assetsB = planAssetsB * Math.pow(1 + denominatorGrowth, year);
-      const existingPoint = getCurvePointAtAge(annualCurve, existingAge + year);
-      const existingRunoffNavB = existingNavB * (existingPoint.nav / existingStartNav);
+  for (let year = 0; year <= planningYears; year++) {
+    const assetsB = planAssetsB * Math.pow(1 + denominatorGrowth, year);
+    const existingPoint = getCurvePointAtAge(annualCurve, existingAge + year);
+    const existingRunoffNavB = existingNavB * (existingPoint.nav / existingStartNav);
 
-      let newBuildNavB = 0;
-      for (let vintage = 0; vintage <= year; vintage++) {
-        const commitB = (annualCommitmentM / 1000) * Math.pow(1 + commitGrowth, vintage);
-        const age = year - vintage;
-        const point = getCurvePointAtAge(annualCurve, age);
-        newBuildNavB += commitB * point.nav;
-      }
-
-      const totalNavB = existingRunoffNavB + newBuildNavB;
-      const exposure = assetsB > 0 ? totalNavB / assetsB : 0;
-      rows.push({
-        year,
-        assetsB,
-        existingRunoffNavB,
-        newBuildNavB,
-        totalNavB,
-        exposure
-      });
+    let newBuildNavB = 0;
+    for (let vintage = 0; vintage <= year; vintage++) {
+      const commitB = (annualCommitmentM / 1000) * Math.pow(1 + commitGrowth, vintage);
+      const age = year - vintage;
+      const point = getCurvePointAtAge(annualCurve, age);
+      newBuildNavB += commitB * point.nav;
     }
 
-    const inBandYears = rows.filter((row) => row.exposure >= targetPct - bandWidth && row.exposure <= targetPct + bandWidth).length;
-    const year5Exposure = rows[Math.min(5, rows.length - 1)]?.exposure || 0;
-    const suggestedCommitmentM = year5Exposure > 1e-6
-      ? annualCommitmentM * (targetPct / year5Exposure)
-      : annualCommitmentM;
+    const totalNavB = existingRunoffNavB + newBuildNavB;
+    const exposure = assetsB > 0 ? totalNavB / assetsB : 0;
+    rows.push({
+      year,
+      assetsB,
+      existingRunoffNavB,
+      newBuildNavB,
+      totalNavB,
+      exposure
+    });
+  }
 
-    return { rows, inBandYears, year5Exposure, suggestedCommitmentM };
+  const year5Exposure = rows[Math.min(5, rows.length - 1)]?.exposure || 0;
+  const suggestedCommitmentM = year5Exposure > 1e-6
+    ? annualCommitmentM * (targetPct / year5Exposure)
+    : annualCommitmentM;
+
+  return { rows, year5Exposure, suggestedCommitmentM };
+};
+
+const findFirstYearInBand = (rows, targetPct, bandWidth) => {
+  const low = targetPct - bandWidth;
+  const high = targetPct + bandWidth;
+  const row = rows.find((entry) => entry.year > 0 && entry.exposure >= low && entry.exposure <= high);
+  return row ? row.year : null;
+};
+
+const findPeakExposureRow = (rows = []) => {
+  if (!rows.length) return { year: 0, exposure: 0 };
+  return rows.reduce((best, row) => (row.exposure > best.exposure ? row : best), rows[0]);
+};
+
+const PortfolioTargetingSection = () => {
+  const [planAssetsB, setPlanAssetsB] = useState(PORTFOLIO_TARGETING_BASE.planAssetsB);
+  const [targetPct, setTargetPct] = useState(PORTFOLIO_TARGETING_BASE.targetPct);
+  const [bandWidth, setBandWidth] = useState(PORTFOLIO_TARGETING_BASE.bandWidth);
+  const [denominatorGrowth, setDenominatorGrowth] = useState(PORTFOLIO_TARGETING_BASE.denominatorGrowth);
+  const [existingNavB, setExistingNavB] = useState(PORTFOLIO_TARGETING_BASE.existingNavB);
+  const [existingAge, setExistingAge] = useState(PORTFOLIO_TARGETING_BASE.existingAge);
+  const [annualCommitmentM, setAnnualCommitmentM] = useState(PORTFOLIO_TARGETING_BASE.annualCommitmentM);
+  const [commitGrowth, setCommitGrowth] = useState(PORTFOLIO_TARGETING_BASE.commitGrowth);
+  const [planningYears, setPlanningYears] = useState(PORTFOLIO_TARGETING_BASE.planningYears);
+  const [activeScenario, setActiveScenario] = useState('base');
+
+  const annualCurve = useMemo(() => buildAnnualGrossCurve(12, 5, 2.5), []);
+  const scenarioPresets = useMemo(() => ([
+    { id: 'base', label: 'Base', values: PORTFOLIO_TARGETING_BASE },
+    {
+      id: 'fast-ramp',
+      label: 'Fast Ramp',
+      values: {
+        ...PORTFOLIO_TARGETING_BASE,
+        annualCommitmentM: 420,
+        commitGrowth: 0.05,
+        existingNavB: 0.85,
+        existingAge: 7
+      }
+    },
+    {
+      id: 'growth-shock',
+      label: 'Denominator Growth Shock',
+      values: {
+        ...PORTFOLIO_TARGETING_BASE,
+        denominatorGrowth: 0.07,
+        annualCommitmentM: 295
+      }
+    },
+    {
+      id: 'over-commit',
+      label: 'Over-Commit',
+      values: {
+        ...PORTFOLIO_TARGETING_BASE,
+        annualCommitmentM: 480,
+        commitGrowth: 0.06,
+        bandWidth: 0.02
+      }
+    },
+    {
+      id: 'secondary-sale',
+      label: 'Secondary Sale',
+      values: {
+        ...PORTFOLIO_TARGETING_BASE,
+        existingNavB: 0.65,
+        existingAge: 8,
+        annualCommitmentM: 210,
+        commitGrowth: 0.01
+      }
+    }
+  ]), []);
+
+  const applyScenario = (scenarioId) => {
+    const selected = scenarioPresets.find((scenario) => scenario.id === scenarioId);
+    if (!selected) return;
+    const values = selected.values;
+    setPlanAssetsB(values.planAssetsB);
+    setTargetPct(values.targetPct);
+    setBandWidth(values.bandWidth);
+    setDenominatorGrowth(values.denominatorGrowth);
+    setExistingNavB(values.existingNavB);
+    setExistingAge(values.existingAge);
+    setAnnualCommitmentM(values.annualCommitmentM);
+    setCommitGrowth(values.commitGrowth);
+    setPlanningYears(values.planningYears);
+    setActiveScenario(scenarioId);
+  };
+
+  const markCustom = () => {
+    if (activeScenario !== 'custom') setActiveScenario('custom');
+  };
+
+  const projection = useMemo(() => {
+    return buildTargetExposureProjection({
+      annualCurve,
+      planAssetsB,
+      denominatorGrowth,
+      existingNavB,
+      existingAge,
+      annualCommitmentM,
+      commitGrowth,
+      planningYears,
+      targetPct
+    });
   }, [
     annualCurve,
     planAssetsB,
@@ -8054,9 +8300,15 @@ const PortfolioTargetingSection = () => {
     annualCommitmentM,
     commitGrowth,
     planningYears,
-    targetPct,
-    bandWidth
+    targetPct
   ]);
+
+  const baseProjection = useMemo(() => {
+    return buildTargetExposureProjection({
+      annualCurve,
+      ...PORTFOLIO_TARGETING_BASE
+    });
+  }, [annualCurve]);
 
   const yearLabels = projection.rows.map((row) => `Yr ${row.year}`);
   const exposurePctSeries = projection.rows.map((row) => row.exposure * 100);
@@ -8064,6 +8316,25 @@ const PortfolioTargetingSection = () => {
   const runoffSeries = projection.rows.map((row) => row.existingRunoffNavB);
   const buildSeries = projection.rows.map((row) => row.newBuildNavB);
   const currentExposure = projection.rows[0]?.exposure || 0;
+  const inBandYears = projection.rows.filter((row) => row.exposure >= targetPct - bandWidth && row.exposure <= targetPct + bandWidth).length;
+  const firstYearInBand = findFirstYearInBand(projection.rows, targetPct, bandWidth);
+  const peakExposureRow = findPeakExposureRow(projection.rows);
+  const miniTickStep = Math.max(1, Math.round(planningYears / 6));
+
+  const baseFirstYearInBand = findFirstYearInBand(
+    baseProjection.rows,
+    PORTFOLIO_TARGETING_BASE.targetPct,
+    PORTFOLIO_TARGETING_BASE.bandWidth
+  );
+  const basePeakExposureRow = findPeakExposureRow(baseProjection.rows);
+  const deltaYear5Bps = (projection.year5Exposure - baseProjection.year5Exposure) * 10000;
+  const deltaPeakBps = (peakExposureRow.exposure - basePeakExposureRow.exposure) * 10000;
+  const yearsToTargetDelta = firstYearInBand === null || baseFirstYearInBand === null
+    ? null
+    : firstYearInBand - baseFirstYearInBand;
+
+  const signedBps = (value) => `${value >= 0 ? '+' : ''}${Math.round(value).toLocaleString()} bps`;
+  const signedYears = (value) => `${value > 0 ? '+' : ''}${value}y`;
 
   return (
     <section id="portfolio-targeting" className="content-section">
@@ -8105,16 +8376,63 @@ const PortfolioTargetingSection = () => {
       </div>
 
       <div className="interactive-block">
+        <div className="portfolio-scenario-row">
+          <div className="portfolio-targeting-kicker">Quick scenarios</div>
+          <div className="portfolio-scenario-chips">
+            {scenarioPresets.map((scenario) => (
+              <button
+                key={scenario.id}
+                type="button"
+                className={`portfolio-scenario-chip ${activeScenario === scenario.id ? 'active' : ''}`}
+                onClick={() => applyScenario(scenario.id)}
+              >
+                {scenario.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="portfolio-flight-strip">
+          <div className="portfolio-flight-strip-head">
+            <div>
+              <div className="portfolio-flight-kicker">Portfolio Flight Path</div>
+              <div className="portfolio-flight-summary">
+                {formatPercent(currentExposure, 1)} now | target band {formatPercent(targetPct - bandWidth, 1)} to {formatPercent(targetPct + bandWidth, 1)} | {firstYearInBand === null ? 'target band not reached in horizon' : `first in-band year: Yr ${firstYearInBand}`}
+              </div>
+            </div>
+            <div className="portfolio-flight-pill">
+              {firstYearInBand === null ? 'No in-band year' : `Yr ${firstYearInBand} in-band`}
+            </div>
+          </div>
+          <ComparisonChart
+            seriesA={exposurePctSeries}
+            seriesB={targetSeries}
+            labelA="Projected PE Exposure"
+            labelB="Target Exposure"
+            xLabels={yearLabels}
+            xTickStep={miniTickStep}
+            yFormatter={(value) => `${value.toFixed(1)}%`}
+            colorA="#1B2A4A"
+            colorB="#2D6B4F"
+            height={160}
+            marker={firstYearInBand === null ? null : {
+              index: firstYearInBand,
+              label: `First in-band Yr ${firstYearInBand}`,
+              color: '#C9A84C'
+            }}
+          />
+        </div>
+
         <div className="sliders-grid">
-          <Slider label="Plan Assets Today" value={planAssetsB} min={5} max={60} step={0.5} format={(v) => `${formatCurrency(v * 1e9, 0)}`} onChange={setPlanAssetsB} accent="#1B2A4A" />
-          <Slider label="Target PE Exposure" value={targetPct} min={0.05} max={0.2} step={0.005} format={(v) => formatPercent(v, 1)} onChange={setTargetPct} accent="#2D6B4F" />
-          <Slider label="Target Band Width (+/-)" value={bandWidth} min={0.005} max={0.03} step={0.0025} format={(v) => formatPercent(v, 2)} onChange={setBandWidth} accent="#9A9690" />
-          <Slider label="Denominator Growth" value={denominatorGrowth} min={0} max={0.08} step={0.0025} format={(v) => formatPercent(v, 1)} onChange={setDenominatorGrowth} accent="#C9A84C" />
-          <Slider label="Existing Portfolio NAV" value={existingNavB} min={0.25} max={3.5} step={0.05} format={(v) => formatCurrency(v * 1e9, 0)} onChange={setExistingNavB} accent="#1B2A4A" />
-          <Slider label="Existing Portfolio Avg Age" value={existingAge} min={1} max={11} step={1} format={(v) => `Year ${Math.round(v)}`} onChange={(v) => setExistingAge(Math.round(v))} accent="#B5473A" />
-          <Slider label="Annual New Commitments" value={annualCommitmentM} min={75} max={900} step={5} format={(v) => formatCurrency(v * 1e6, 0)} onChange={setAnnualCommitmentM} accent="#1B2A4A" />
-          <Slider label="Commitment Growth" value={commitGrowth} min={-0.03} max={0.08} step={0.0025} format={(v) => formatPercent(v, 1)} onChange={setCommitGrowth} accent="#2D6B4F" />
-          <Slider label="Planning Horizon" value={planningYears} min={6} max={18} step={1} format={(v) => `${Math.round(v)} years`} onChange={(v) => setPlanningYears(Math.round(v))} accent="#9A9690" />
+          <Slider label="Plan Assets Today" value={planAssetsB} min={5} max={60} step={0.5} format={(v) => `${formatCurrency(v * 1e9, 0)}`} onChange={(v) => { markCustom(); setPlanAssetsB(v); }} accent="#1B2A4A" />
+          <Slider label="Target PE Exposure" value={targetPct} min={0.05} max={0.2} step={0.005} format={(v) => formatPercent(v, 1)} onChange={(v) => { markCustom(); setTargetPct(v); }} accent="#2D6B4F" />
+          <Slider label="Target Band Width (+/-)" value={bandWidth} min={0.005} max={0.03} step={0.0025} format={(v) => formatPercent(v, 2)} onChange={(v) => { markCustom(); setBandWidth(v); }} accent="#9A9690" />
+          <Slider label="Denominator Growth" value={denominatorGrowth} min={0} max={0.08} step={0.0025} format={(v) => formatPercent(v, 1)} onChange={(v) => { markCustom(); setDenominatorGrowth(v); }} accent="#C9A84C" />
+          <Slider label="Existing Portfolio NAV" value={existingNavB} min={0.25} max={3.5} step={0.05} format={(v) => formatCurrency(v * 1e9, 0)} onChange={(v) => { markCustom(); setExistingNavB(v); }} accent="#1B2A4A" />
+          <Slider label="Existing Portfolio Avg Age" value={existingAge} min={1} max={11} step={1} format={(v) => `Year ${Math.round(v)}`} onChange={(v) => { markCustom(); setExistingAge(Math.round(v)); }} accent="#B5473A" />
+          <Slider label="Annual New Commitments" value={annualCommitmentM} min={75} max={900} step={5} format={(v) => formatCurrency(v * 1e6, 0)} onChange={(v) => { markCustom(); setAnnualCommitmentM(v); }} accent="#1B2A4A" />
+          <Slider label="Commitment Growth" value={commitGrowth} min={-0.03} max={0.08} step={0.0025} format={(v) => formatPercent(v, 1)} onChange={(v) => { markCustom(); setCommitGrowth(v); }} accent="#2D6B4F" />
+          <Slider label="Planning Horizon" value={planningYears} min={6} max={18} step={1} format={(v) => `${Math.round(v)} years`} onChange={(v) => { markCustom(); setPlanningYears(Math.round(v)); }} accent="#9A9690" />
         </div>
 
         <div className="metrics-row">
@@ -8123,8 +8441,30 @@ const PortfolioTargetingSection = () => {
           <MetricCard label="Implied Annual Commitments" value={formatCurrency(projection.suggestedCommitmentM * 1e6, 0)} subtext="Approx commitment to align by year 5" accent="#B5473A" />
         </div>
 
+        <div className="portfolio-delta-panel">
+          <div className="portfolio-delta-title">What Changed vs Base</div>
+          <div className="portfolio-delta-grid">
+            <div className="portfolio-delta-item">
+              <span>Year 5 exposure</span>
+              <strong className={deltaYear5Bps >= 0 ? 'positive' : 'negative'}>{signedBps(deltaYear5Bps)}</strong>
+            </div>
+            <div className="portfolio-delta-item">
+              <span>Years to reach band</span>
+              <strong className={yearsToTargetDelta === null ? '' : yearsToTargetDelta <= 0 ? 'positive' : 'negative'}>
+                {yearsToTargetDelta === null ? 'N/A' : signedYears(yearsToTargetDelta)}
+              </strong>
+            </div>
+            <div className="portfolio-delta-item">
+              <span>Peak exposure</span>
+              <strong className={deltaPeakBps <= 0 ? 'positive' : 'negative'}>
+                {signedBps(deltaPeakBps)}
+              </strong>
+            </div>
+          </div>
+        </div>
+
         <p className="portfolio-inline-note">
-          Exposure-in-band years in current run: <strong>{projection.inBandYears}</strong> of <strong>{projection.rows.length}</strong>
+          Exposure-in-band years in current run: <strong>{inBandYears}</strong> of <strong>{projection.rows.length}</strong>
         </p>
 
         <h3 className="chart-title">Projected PE Exposure vs Target</h3>
@@ -8964,6 +9304,220 @@ const PortfolioSourcesFooter = () => (
   </section>
 );
 
+const AsiaHeroSection = () => (
+  <section id="asia-hero" className="hero-section asia-hero">
+    <div className="draft-hero-banner">DRAFT - NOT FINAL</div>
+    <div className="pathway-badge">Pathway Education</div>
+    <h1>Investing in Private Equity in Asia</h1>
+    <p className="hero-subtitle">A practical LP framework for strategy, manager selection, and implementation risk</p>
+    <p className="hero-purpose-note">
+      Asia can offer strong growth, deep company-formation pipelines, and differentiated access opportunities.
+      It also requires tighter underwriting discipline on governance, legal structure, currency, and exit realism.
+    </p>
+    <div className="hero-scroll-note">Use this page as a working checklist for portfolio design and manager conversations</div>
+  </section>
+);
+
+const AsiaWhyNowSection = () => (
+  <section id="asia-why-now" className="content-section">
+    <h2>1. Why Include Asia in a PE Program?</h2>
+    <p>
+      For many LPs, Asia is not just a geography call. It is a return-source diversification decision.
+      Company growth profiles, financing ecosystems, and exit channels can differ from the US and Europe,
+      creating differentiated opportunity sets when selected carefully.
+    </p>
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Growth + Innovation Exposure</h3>
+        <p>Sector expansion in technology, healthcare, manufacturing modernization, and consumer ecosystems can create distinct value-creation paths.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Diversification Value</h3>
+        <p>Regional cycles can be imperfectly correlated with Western buyout cycles, which can support better program-level risk balance.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Implementation Matters</h3>
+        <p>The dispersion between top and median outcomes is often wide, so manager selection and pacing policy drive realized results.</p>
+      </div>
+    </div>
+    <PathwayInlineCta line="Need help deciding how much Asia exposure belongs in your overall private markets program?" />
+  </section>
+);
+
+const AsiaMarketStructureSection = () => (
+  <section id="asia-market-structure" className="content-section">
+    <h2>2. Market Structure: What Is Different in Asia?</h2>
+    <p>
+      Asia is not one market. Country-level legal frameworks, listing channels, currency regimes,
+      and sponsor ecosystems vary meaningfully. Underwriting should start with local market structure,
+      not a single regional average.
+    </p>
+    <div className="interactive-block">
+      <div className="portfolio-commentary-block">
+        <h3 className="portfolio-commentary-title">Key Structural Variables To Underwrite</h3>
+        <table className="portfolio-commentary-table">
+          <tbody>
+            <tr>
+              <th scope="row">Governance</th>
+              <td>Minority protections, board control, and enforcement norms can materially impact downside protection.</td>
+            </tr>
+            <tr>
+              <th scope="row">Legal structure</th>
+              <td>Fund domicile, tax treaties, and local corporate-law realities can change net outcomes to LPs.</td>
+            </tr>
+            <tr>
+              <th scope="row">Exit channels</th>
+              <td>Trade sale, sponsor-to-sponsor, and IPO depth differ by market and by cycle, affecting hold periods and realizations.</td>
+            </tr>
+            <tr>
+              <th scope="row">Currency</th>
+              <td>FX can dominate near-term reported performance if not framed clearly at underwriting and portfolio levels.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+);
+
+const AsiaDueDiligenceSection = () => (
+  <section id="asia-dd" className="content-section">
+    <h2>3. Manager Due Diligence Priorities</h2>
+    <p>
+      The central question is not whether a manager has one strong fund, but whether their sourcing,
+      governance, and exit process is repeatable across cycles.
+    </p>
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Deal Access Quality</h3>
+        <p>Look for repeatable proprietary or advantaged sourcing, not only intermediated auction participation.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Underwriting Discipline</h3>
+        <p>Pressure-test assumptions on revenue quality, leverage tolerance, working-capital behavior, and downside cases.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Post-Investment Execution</h3>
+        <p>Assess operating value creation, local board effectiveness, and cadence of intervention when plans miss.</p>
+      </div>
+    </div>
+    <div className="interactive-block">
+      <p className="portfolio-inline-note">
+        Practical DD prompt: ask managers to walk one top-quartile and one weak deal end-to-end, including
+        original underwriting, what broke, what changed, and how exit value was ultimately realized.
+      </p>
+    </div>
+  </section>
+);
+
+const AsiaPortfolioDesignSection = () => {
+  const [strategyLens, setStrategyLens] = useState('buyout');
+  const lensText = {
+    buyout: 'Buyout sleeves can improve governance control and operating intervention, but entry pricing and leverage assumptions need conservative stress tests.',
+    growth: 'Growth equity can capture structural expansion and founder-led value creation, but underwriting quality of growth and path to liquidity is critical.',
+    venture: 'Venture can provide upside convexity and innovation access, but outcome dispersion and duration risk are typically highest.',
+    secondaries: 'Secondaries can improve pacing and shorten J-curve effects, but discounts/premiums and asset-quality dispersion require deep portfolio-level analysis.'
+  };
+
+  return (
+    <section id="asia-portfolio-design" className="content-section">
+      <h2>4. Portfolio Design Across Strategies and Types</h2>
+      <p>
+        A durable Asia allocation usually combines multiple sleeves rather than relying on one strategy.
+        The goal is to balance return potential, pacing, and liquidity realism.
+      </p>
+      <div className="interactive-block">
+        <div className="environment-toolbar-group">
+          <span className="environment-toolbar-label">Strategy Lens</span>
+          <ToggleSwitch
+            options={[
+              { label: 'Buyout', value: 'buyout' },
+              { label: 'Growth', value: 'growth' },
+              { label: 'Venture', value: 'venture' },
+              { label: 'Secondaries', value: 'secondaries' }
+            ]}
+            value={strategyLens}
+            onChange={setStrategyLens}
+            accent="#1B2A4A"
+          />
+        </div>
+        <p className="portfolio-inline-note">{lensText[strategyLens]}</p>
+        <div className="metrics-row">
+          <MetricCard label="Pacing Goal" value="Smooth NAV Build" subtext="Avoid concentration in one vintage or one strategy" accent="#1B2A4A" />
+          <MetricCard label="Liquidity Goal" value="Realistic Exit Map" subtext="Align strategy weights with likely hold periods" accent="#2D6B4F" />
+          <MetricCard label="Risk Goal" value="Controlled Dispersion" subtext="Diversify by country, strategy, and GP process quality" accent="#B5473A" />
+        </div>
+      </div>
+      <PathwayInlineCta line="Want support turning this into an executable Asia pacing plan?" />
+    </section>
+  );
+};
+
+const AsiaExecutionGovernanceSection = () => (
+  <section id="asia-execution-governance" className="content-section">
+    <h2>5. Execution and Governance: Where Programs Win or Lose</h2>
+    <p>
+      Strong strategy design can still underperform if governance and implementation are weak.
+      Define operating rules before the market is stressed.
+    </p>
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Decision Cadence</h3>
+        <p>Set an annual and quarterly pacing cadence so commitment decisions are process-driven, not sentiment-driven.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Risk Limits</h3>
+        <p>Use explicit ranges for country concentration, manager concentration, and strategy drift.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Escalation Rules</h3>
+        <p>Predefine what triggers pacing cuts, secondary sales, or strategy reweighting when conditions move quickly.</p>
+      </div>
+    </div>
+  </section>
+);
+
+const AsiaRedFlagsSection = () => (
+  <section id="asia-red-flags" className="content-section">
+    <h2>6. Red Flags to Watch Closely</h2>
+    <div className="interactive-block">
+      <ul className="portfolio-targeting-questions">
+        <li>Fund narrative relies on macro tailwinds but provides weak deal-level evidence.</li>
+        <li>Attribution is dominated by mark-up optimism with limited realized exits.</li>
+        <li>Underwriting memos do not show a robust downside plan or governance path.</li>
+        <li>Team turnover is high, with key local operators recently departed.</li>
+        <li>FX and legal-structure risk are treated as minor instead of modeled explicitly.</li>
+        <li>Portfolio concentration is justified as conviction without clear risk controls.</li>
+      </ul>
+    </div>
+  </section>
+);
+
+const AsiaPlaybookSection = () => (
+  <section id="asia-playbook" className="content-section">
+    <h2>7. LP Playbook: How to Implement Thoughtfully</h2>
+    <p>
+      Start with clear objectives, build a pacing plan that acknowledges uncertainty, and maintain
+      governance discipline when market narratives swing.
+    </p>
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Define the role of Asia</h3>
+        <p>Clarify whether Asia is expected to add growth, diversification, liquidity optionality, or all three.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Build by vintages, not headlines</h3>
+        <p>Use multi-year commitment pacing to avoid accidental market timing and concentration risk.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Review outcomes annually</h3>
+        <p>Re-underwrite manager assumptions and rebalance strategy/country weights based on realized evidence.</p>
+      </div>
+    </div>
+    <PathwayInlineCta line="If you want to discuss Asia PE allocation design in detail, Pathway can help." />
+  </section>
+);
+
 // ============================================================================
 // MAIN APP
 // ============================================================================
@@ -8978,6 +9532,9 @@ export default function App() {
     if (hash.startsWith('portfolio') || PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash)) {
       return 'portfolio';
     }
+    if (hash.startsWith('asia') || ASIA_SECTION_LINKS.some((section) => section.id === hash)) {
+      return 'asia';
+    }
     if (hash.startsWith('environment') || ENVIRONMENT_SECTION_LINKS.some((section) => section.id === hash)) {
       return 'environment';
     }
@@ -8989,6 +9546,8 @@ export default function App() {
       const hash = window.location.hash.replace('#', '').toLowerCase();
       if (PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('portfolio')) {
         setActivePage('portfolio');
+      } else if (ASIA_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('asia')) {
+        setActivePage('asia');
       } else if (ENVIRONMENT_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('environment')) {
         setActivePage('environment');
       } else if (LIQUIDITY_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('liquidity')) {
@@ -9008,6 +9567,8 @@ export default function App() {
       ? 'liquidity'
       : pageKey === 'portfolio'
         ? 'portfolio'
+      : pageKey === 'asia'
+        ? 'asia'
       : pageKey === 'environment'
         ? 'environment'
         : 'economics';
@@ -9016,6 +9577,8 @@ export default function App() {
       ? LIQUIDITY_SECTION_LINKS[0].id
       : targetPage === 'portfolio'
         ? PORTFOLIO_SECTION_LINKS[0].id
+      : targetPage === 'asia'
+        ? ASIA_SECTION_LINKS[0].id
       : targetPage === 'environment'
         ? ENVIRONMENT_SECTION_LINKS[0].id
         : SECTION_LINKS[0].id;
@@ -9027,6 +9590,8 @@ export default function App() {
     ? LIQUIDITY_SECTION_LINKS
     : activePage === 'portfolio'
       ? PORTFOLIO_SECTION_LINKS
+    : activePage === 'asia'
+      ? ASIA_SECTION_LINKS
     : activePage === 'environment'
       ? ENVIRONMENT_SECTION_LINKS
       : SECTION_LINKS;
@@ -9270,6 +9835,7 @@ export default function App() {
         }
 
         .header-menu-item {
+          display: block;
           width: 100%;
           text-align: left;
           border: 0;
@@ -9283,6 +9849,10 @@ export default function App() {
           padding: 10px 12px;
           border-radius: 7px;
           cursor: pointer;
+        }
+
+        .header-menu-link {
+          text-decoration: none;
         }
 
         .header-menu-item:hover {
@@ -9327,6 +9897,10 @@ export default function App() {
           .sticky-contact-cta {
             display: none;
           }
+
+          .sticky-contact-mini {
+            display: none;
+          }
         }
 
         .sticky-contact-cta {
@@ -9334,15 +9908,12 @@ export default function App() {
           right: 16px;
           bottom: 16px;
           z-index: 120;
-          display: grid;
-          gap: 1px;
+          display: block;
           min-width: 230px;
-          text-decoration: none;
-          color: #ffffff;
           background: linear-gradient(180deg, #1B2A4A 0%, #0F1B33 100%);
           border: 1px solid rgba(255, 255, 255, 0.26);
           border-radius: 12px;
-          padding: 10px 12px;
+          padding: 8px 10px 10px;
           box-shadow: 0 14px 30px rgba(8, 18, 35, 0.35);
           transition: transform 0.18s ease, box-shadow 0.18s ease;
         }
@@ -9350,6 +9921,56 @@ export default function App() {
         .sticky-contact-cta:hover {
           transform: translateY(-1px);
           box-shadow: 0 18px 36px rgba(8, 18, 35, 0.4);
+        }
+
+        .sticky-contact-link {
+          display: grid;
+          gap: 1px;
+          text-decoration: none;
+          color: #ffffff;
+          padding: 2px 2px 0;
+        }
+
+        .sticky-contact-close {
+          width: 22px;
+          height: 22px;
+          border: 1px solid rgba(255, 255, 255, 0.4);
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.08);
+          color: rgba(255, 255, 255, 0.9);
+          font-size: 14px;
+          line-height: 1;
+          cursor: pointer;
+          margin-left: auto;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+
+        .sticky-contact-close:hover {
+          background: rgba(255, 255, 255, 0.16);
+        }
+
+        .sticky-contact-mini {
+          position: fixed;
+          right: 16px;
+          bottom: 16px;
+          z-index: 120;
+          border: 1px solid rgba(27, 42, 74, 0.25);
+          border-radius: 999px;
+          background: #ffffff;
+          color: #1B2A4A;
+          font-size: 12px;
+          font-weight: 600;
+          letter-spacing: 0.2px;
+          padding: 8px 12px;
+          cursor: pointer;
+          box-shadow: 0 10px 24px rgba(8, 18, 35, 0.18);
+        }
+
+        .sticky-contact-mini:hover {
+          background: #F3F7FD;
+          border-color: #1B2A4A;
         }
 
         .sticky-contact-kicker {
@@ -9800,6 +10421,23 @@ export default function App() {
           margin-bottom: 0;
         }
 
+        .draft-hero-banner {
+          display: block;
+          width: min(680px, 100%);
+          margin: 0 auto 14px;
+          padding: 9px 12px;
+          border-radius: 10px;
+          background: #B5473A;
+          color: #ffffff;
+          text-align: center;
+          font-size: 13px;
+          letter-spacing: 1.1px;
+          text-transform: uppercase;
+          font-weight: 700;
+          border: 1px solid rgba(255, 255, 255, 0.38);
+          box-shadow: 0 8px 18px rgba(181, 71, 58, 0.32);
+        }
+
         .liquidity-hero {
           background:
             radial-gradient(circle at 12% 8%, rgba(27, 42, 74, 0.16), transparent 40%),
@@ -10199,6 +10837,13 @@ export default function App() {
             linear-gradient(180deg, #F8FBFF 0%, #F0F5FC 62%, #EDF2F8 100%);
         }
 
+        .asia-hero {
+          background:
+            radial-gradient(circle at 12% 12%, rgba(10, 78, 121, 0.24), transparent 42%),
+            radial-gradient(circle at 86% 18%, rgba(45, 107, 79, 0.18), transparent 34%),
+            linear-gradient(180deg, #F5FAFF 0%, #ECF4FD 62%, #EAF2FB 100%);
+        }
+
         .portfolio-hero-teaser {
           margin: 14px auto 10px;
           max-width: 980px;
@@ -10271,6 +10916,151 @@ export default function App() {
           line-height: 1.45;
         }
 
+        .portfolio-scenario-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 10px 12px;
+          margin-bottom: 8px;
+        }
+
+        .portfolio-scenario-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .portfolio-scenario-chip {
+          border: 1px solid #CAD5E6;
+          border-radius: 999px;
+          background: #FFFFFF;
+          color: #44526B;
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.4px;
+          text-transform: uppercase;
+          padding: 7px 11px;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .portfolio-scenario-chip:hover {
+          border-color: #1B2A4A;
+          color: #1B2A4A;
+          background: #F3F7FE;
+        }
+
+        .portfolio-scenario-chip.active {
+          background: #1B2A4A;
+          color: #FFFFFF;
+          border-color: #1B2A4A;
+        }
+
+        .portfolio-flight-strip {
+          position: sticky;
+          top: 86px;
+          z-index: 5;
+          border: 1px solid #CCD8EA;
+          border-radius: 12px;
+          background: linear-gradient(180deg, rgba(248, 251, 255, 0.98) 0%, rgba(241, 246, 253, 0.98) 100%);
+          box-shadow: 0 10px 20px rgba(16, 33, 63, 0.08);
+          padding: 12px 12px 10px;
+          margin-bottom: 14px;
+          backdrop-filter: blur(2px);
+        }
+
+        .portfolio-flight-strip-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 10px 14px;
+          flex-wrap: wrap;
+          margin-bottom: 6px;
+        }
+
+        .portfolio-flight-kicker {
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #5D6C86;
+          margin-bottom: 3px;
+        }
+
+        .portfolio-flight-summary {
+          font-size: 13px;
+          line-height: 1.45;
+          color: #33445F;
+        }
+
+        .portfolio-flight-pill {
+          border: 1px solid rgba(27, 42, 74, 0.24);
+          border-radius: 999px;
+          background: rgba(27, 42, 74, 0.08);
+          color: #1B2A4A;
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          white-space: nowrap;
+          padding: 6px 10px;
+        }
+
+        .portfolio-delta-panel {
+          margin-top: 10px;
+          border: 1px solid #D6DFEC;
+          border-radius: 10px;
+          background: #FAFCFF;
+          padding: 10px 12px;
+        }
+
+        .portfolio-delta-title {
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #5D6C86;
+          margin-bottom: 8px;
+        }
+
+        .portfolio-delta-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 10px;
+        }
+
+        .portfolio-delta-item {
+          border: 1px solid #E2E8F2;
+          border-radius: 8px;
+          background: #FFFFFF;
+          padding: 8px 10px;
+          display: grid;
+          gap: 3px;
+        }
+
+        .portfolio-delta-item span {
+          font-size: 11px;
+          color: #5F6E86;
+          letter-spacing: 0.3px;
+        }
+
+        .portfolio-delta-item strong {
+          font-family: 'SF Mono', 'Monaco', monospace;
+          font-size: 16px;
+          color: #1B2A4A;
+        }
+
+        .portfolio-delta-item strong.positive {
+          color: #2D6B4F;
+        }
+
+        .portfolio-delta-item strong.negative {
+          color: #B5473A;
+        }
+
         .pathway-inline-cta {
           margin: 12px 0 2px;
           border: 1px solid #D6DFEC;
@@ -10339,6 +11129,17 @@ export default function App() {
         .portfolio-commentary-table td {
           color: #4F5B72;
           font-weight: 400;
+        }
+
+        @media (max-width: 1080px) {
+          .portfolio-flight-strip {
+            position: static;
+            top: auto;
+          }
+
+          .portfolio-delta-grid {
+            grid-template-columns: 1fr;
+          }
         }
 
         .portfolio-riffs-cta {
@@ -13170,6 +13971,17 @@ export default function App() {
               <PortfolioRiffsSection />
               <PortfolioSourcesFooter />
             </>
+          ) : activePage === 'asia' ? (
+            <>
+              <AsiaHeroSection />
+              <AsiaWhyNowSection />
+              <AsiaMarketStructureSection />
+              <AsiaDueDiligenceSection />
+              <AsiaPortfolioDesignSection />
+              <AsiaExecutionGovernanceSection />
+              <AsiaRedFlagsSection />
+              <AsiaPlaybookSection />
+            </>
           ) : (
             <>
               <EnvironmentHeroSection />
@@ -13182,7 +13994,7 @@ export default function App() {
           )}
         </main>
       </div>
-      <StickyContactPrompt />
+      <StickyContactPrompt activePage={activePage} />
     </div>
   );
 }
