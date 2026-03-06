@@ -3199,9 +3199,10 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
   const yTicks = Array.from({ length: 6 }, (_, idx) => 0.5 + idx * 0.5);
   const focusX = xFor(ACTUAL_SPREAD_TARGET.gross);
   const focusY = yFor(ACTUAL_SPREAD_TARGET.net);
-  const calloutWidth = Math.min(218, Math.max(160, width * 0.26));
-  const calloutX = Math.min(width - padding.right - calloutWidth, focusX + 28);
-  const calloutY = Math.max(padding.top + 6, focusY - 94);
+  const calloutWidth = Math.min(200, Math.max(156, width * 0.24));
+  const calloutHeight = 72;
+  const calloutX = padding.left + 14;
+  const calloutY = padding.top + 12;
   const trendPath = chartData.trendBuckets.length
     ? chartData.trendBuckets.map((bucket, idx) => `${idx === 0 ? 'M' : 'L'} ${xFor(bucket.grossMid)} ${yFor(bucket.medianNet)}`).join(' ')
     : '';
@@ -3303,12 +3304,12 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
           <circle cx={focusX} cy={focusY} r="3.6" fill="#1B2A4A" />
 
           <path
-            d={`M ${calloutX} ${calloutY + 62} C ${calloutX - 12} ${calloutY + 74}, ${focusX + 16} ${focusY - 10}, ${focusX + 2} ${focusY - 2}`}
+            d={`M ${calloutX + calloutWidth - 10} ${calloutY + calloutHeight - 8} C ${calloutX + calloutWidth + 10} ${calloutY + calloutHeight + 4}, ${focusX - 14} ${focusY - 22}, ${focusX - 2} ${focusY - 4}`}
             fill="none"
             stroke="rgba(27, 42, 74, 0.55)"
             strokeWidth="1.6"
           />
-          <rect x={calloutX} y={calloutY} width={calloutWidth} height="72" rx="12" fill="rgba(255, 255, 255, 0.94)" stroke="#D6DFEC" />
+          <rect x={calloutX} y={calloutY} width={calloutWidth} height={calloutHeight} rx="12" fill="rgba(255, 255, 255, 0.94)" stroke="#D6DFEC" />
           <text x={calloutX + 12} y={calloutY + 20} className="actual-spread-callout-kicker">Highlighted Baseline Zone</text>
           <text x={calloutX + 12} y={calloutY + 40} className="actual-spread-callout-title">{ACTUAL_SPREAD_TARGET.gross.toFixed(1)}x gross to {ACTUAL_SPREAD_TARGET.net.toFixed(1)}x net</text>
           <text x={calloutX + 12} y={calloutY + 58} className="actual-spread-callout-copy">Dense observed cluster from actual Pathway fund outcomes.</text>
