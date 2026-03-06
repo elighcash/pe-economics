@@ -4953,9 +4953,16 @@ const HeroSection = () => (
       <p className="hero-purpose-note">
         A Pathway guide for institutional LPs who want to see where the spread comes from and how to diligence it.
       </p>
+      <p className="hero-abstract">
+        This guide walks through the main terms and mechanics that drive the gap between gross fund
+        performance and what LPs ultimately keep, using observed Pathway fund outcomes alongside an
+        interactive model of management fees, fund expenses, carried interest, waterfalls, timing, and
+        deployment. The goal is simple: make the gross-to-net spread easier to see, easier to question,
+        and easier to diligence before capital is committed.
+      </p>
       <div className="hero-action-bar">
         <a className="hero-primary-cta" href={WALKTHROUGH_MAILTO}>Request a Walkthrough</a>
-        <a className="hero-secondary-cta" href="#why-matters">Explore the Model</a>
+        <a className="hero-secondary-cta" href="#why-matters">Scroll Down to Learn</a>
       </div>
       <div className="hero-trust-strip">Educational only. Illustrative assumptions. As of {SITE_AS_OF_DATE}.</div>
 
@@ -13028,6 +13035,15 @@ export default function App() {
           margin: 0 auto 14px;
         }
 
+        .hero-abstract {
+          max-width: 880px;
+          margin: 0 auto 20px;
+          color: #4F5B72;
+          font-size: 16px;
+          line-height: 1.72;
+          text-wrap: pretty;
+        }
+
         .hero-primary-cta,
         .hero-secondary-cta {
           display: inline-flex;
@@ -17600,6 +17616,11 @@ export default function App() {
 
           .hero-graphboard {
             padding: 16px;
+          }
+
+          .hero-abstract {
+            font-size: 15px;
+            line-height: 1.66;
           }
 
           .hero-graph-canvas {
