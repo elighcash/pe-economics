@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
+import vcWorldBenchmarksCsvUrl from '../VC World Benchmarks 1993-2025 Consolidated.csv?url';
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -21,6 +22,258 @@ const formatCurrency = (value, decimals = 1) => {
 const formatPercent = (value, decimals = 1) => `${(value * 100).toFixed(decimals)}%`;
 
 const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+
+const solveAnnualIrr = (cashflows) => {
+  if (!Array.isArray(cashflows) || cashflows.length < 2) return null;
+  const hasPositive = cashflows.some((cf) => cf > 0);
+  const hasNegative = cashflows.some((cf) => cf < 0);
+  if (!hasPositive || !hasNegative) return null;
+
+  const npv = (rate) => cashflows.reduce((sum, cf, idx) => sum + cf / Math.pow(1 + rate, idx), 0);
+  let low = -0.95;
+  let high = 2.5;
+  let npvLow = npv(low);
+  let npvHigh = npv(high);
+  if (!Number.isFinite(npvLow) || !Number.isFinite(npvHigh) || npvLow * npvHigh > 0) return null;
+
+  for (let i = 0; i < 120; i += 1) {
+    const mid = (low + high) / 2;
+    const npvMid = npv(mid);
+    if (!Number.isFinite(npvMid)) return null;
+    if (Math.abs(npvMid) < 1e-8) return mid;
+    if (npvLow * npvMid <= 0) {
+      high = mid;
+      npvHigh = npvMid;
+    } else {
+      low = mid;
+      npvLow = npvMid;
+    }
+  }
+  return (low + high) / 2;
+};
+
+const TYPICAL_INFRA_CONTRIBUTION_PCT = [0.22, 0.24, 0.20, 0.14, 0.10, 0.06, 0.03, 0.01, 0, 0, 0, 0];
+const TYPICAL_INFRA_DISTRIBUTION_PCT = [0, 0.02, 0.04, 0.06, 0.08, 0.11, 0.14, 0.16, 0.16, 0.13, 0.08, 0.02];
+const LATE_HURDLE_DISTRIBUTION_PCT = [0, 0, 0, 0.01, 0.03, 0.06, 0.10, 0.14, 0.18, 0.20, 0.18, 0.10];
+const LATE_HURDLE_RETURN_MULTIPLIERS = [0.35, 0.45, 0.55, 0.70, 0.80, 0.90, 1.00, 1.10, 1.20, 1.30, 1.35, 1.30];
+const EDIF_FEE_DISCOUNT_SCHEDULE = [
+  { min: 0, max: 50, headline: 0.0125, firstClose: 0.0110, existing: 0.0095 },
+  { min: 50, max: 125, headline: 0.0110, firstClose: 0.0095, existing: 0.0080 },
+  { min: 125, max: 200, headline: 0.0100, firstClose: 0.0085, existing: 0.0070 },
+  { min: 200, max: 300, headline: 0.0090, firstClose: 0.0075, existing: 0.0060 },
+  { min: 300, max: Number.POSITIVE_INFINITY, headline: 0.0080, firstClose: 0.0065, existing: 0.0050 }
+];
+
+const getEdifFeeRate = (commitmentM, tier = 'headline') => {
+  const bucket = EDIF_FEE_DISCOUNT_SCHEDULE.find((row) => commitmentM >= row.min && commitmentM < row.max);
+  if (!bucket) return EDIF_FEE_DISCOUNT_SCHEDULE[EDIF_FEE_DISCOUNT_SCHEDULE.length - 1].headline;
+  if (tier === 'existing') return bucket.existing;
+  if (tier === 'firstClose') return bucket.firstClose;
+  return bucket.headline;
+};
+
+const buildAnnualReturnPath = (baseReturn, lateHurdleStress = false) => {
+  if (!lateHurdleStress) {
+    return Array.from({ length: 12 }, () => baseReturn);
+  }
+  const avgMultiplier = LATE_HURDLE_RETURN_MULTIPLIERS.reduce((sum, v) => sum + v, 0) / LATE_HURDLE_RETURN_MULTIPLIERS.length;
+  return LATE_HURDLE_RETURN_MULTIPLIERS.map((m) => clamp(baseReturn * (m / avgMultiplier), -0.40, 0.50));
+};
+
+const runTermStructureModel = ({
+  commitmentM,
+  contributionPctByYear,
+  distributionPctByYear,
+  baseReturn,
+  timingSkew,
+  annualReturnPath = null,
+  escrowYield,
+  lpAltReinvestRate,
+  terms
+}) => {
+  const years = Math.min(contributionPctByYear.length, distributionPctByYear.length);
+  const rows = [];
+  const contributions = [];
+  let nav = 0;
+  let cumulativeContrib = 0;
+  let cumulativeGrossDist = 0;
+  let cumulativeLpDist = 0;
+  let cumulativeFees = 0;
+  let cumulativeExpenses = 0;
+  let cumulativeCarryPaid = 0;
+  let cumulativeCarryPaidToGP = 0;
+  let cumulativeCarryAccrued = 0;
+  let cumulativeCarryEscrowed = 0;
+  let escrowBalance = 0;
+  let finalCarryEntitlement = 0;
+  const lpCashflows = [0];
+
+  for (let i = 0; i < years; i += 1) {
+    const year = i + 1;
+    const navStart = nav;
+    const contribPct = Math.max(0, contributionPctByYear[i] || 0);
+    const distPct = Math.max(0, distributionPctByYear[i] || 0);
+    const called = commitmentM * contribPct * 1e6;
+    contributions.push(called);
+    cumulativeContrib += called;
+    const skewFactor = years > 1 ? ((i / (years - 1)) - 0.5) * 2 : 0;
+    const pathReturn = Array.isArray(annualReturnPath) ? annualReturnPath[i] : null;
+    const grossReturn = Number.isFinite(pathReturn)
+      ? clamp(pathReturn, -0.40, 0.50)
+      : clamp(baseReturn + timingSkew * skewFactor, -0.40, 0.50);
+    const capitalAtWork = Math.max(0, nav + called * 0.5);
+    const grossGain = capitalAtWork * grossReturn;
+    let navBeforeDist = Math.max(0, nav + called + grossGain);
+    let grossDistRequested = commitmentM * distPct * 1e6;
+    if (terms.forceLiquidationAtEnd && year === years) {
+      grossDistRequested += navBeforeDist;
+    }
+    const grossDistPaid = Math.min(navBeforeDist, grossDistRequested);
+    navBeforeDist -= grossDistPaid;
+
+    let feeBase = terms.feeMode === 'invested'
+      ? Math.max(0, capitalAtWork)
+      : terms.feeMode === 'committed'
+        ? commitmentM * 1e6
+        : terms.feeMode === 'nav'
+          ? Math.max(0, navStart)
+          : year <= (terms.investmentPeriodYears || 5)
+            ? commitmentM * 1e6
+            : Math.max(0, navStart);
+    let feeRate = Number.isFinite(terms.feeRate)
+      ? terms.feeRate
+      : terms.feeMode === 'invested'
+        ? terms.feeRateInvested
+        : year <= (terms.investmentPeriodYears || 5)
+          ? terms.feeRateCommitted
+          : terms.feeRateNav;
+    if (terms.stepDownEnabled && year > (terms.investmentPeriodYears || 5)) {
+      feeBase = terms.stepDownBasis === 'invested'
+        ? Math.max(0, capitalAtWork)
+        : terms.stepDownBasis === 'committed'
+          ? commitmentM * 1e6
+          : Math.max(0, navStart);
+      feeRate = terms.stepDownFeeRate;
+    }
+    const fee = feeBase * feeRate;
+    const expense = feeBase * terms.expenseRate;
+    cumulativeFees += fee;
+    cumulativeExpenses += expense;
+
+    const hurdleValue = contributions.reduce(
+      (sum, amount, idx) => sum + amount * Math.pow(1 + terms.hurdleRate, Math.max(0, year - idx)),
+      0
+    );
+    const availableValue = cumulativeGrossDist + grossDistPaid + navBeforeDist;
+    const profitsAboveCapital = Math.max(0, availableValue - cumulativeContrib);
+    const outperformanceAboveHurdle = Math.max(0, availableValue - hurdleValue);
+    const carryEntitlementCum = terms.catchupMode === 'full'
+      ? (availableValue > hurdleValue ? terms.carryRate * profitsAboveCapital : 0)
+      : terms.carryRate * outperformanceAboveHurdle;
+    finalCarryEntitlement = carryEntitlementCum;
+    const carryDueNow = Math.max(0, carryEntitlementCum - cumulativeCarryPaid);
+    cumulativeCarryAccrued += carryDueNow;
+    const navForCap = Math.max(0, navStart);
+    const annualCap = Number.isFinite(terms.annualCarryCapRate) ? terms.annualCarryCapRate * navForCap : Number.POSITIVE_INFINITY;
+    const minLpYield = Math.max(0, terms.minNetYieldRate || 0) * commitmentM * 1e6;
+    const carryCashLimit = Math.max(0, grossDistPaid - minLpYield);
+    const carryPaid = Math.min(carryCashLimit, carryDueNow, annualCap);
+    const gpCashCarry = carryPaid * (1 - terms.escrowFraction);
+    const escrowDeposit = carryPaid * terms.escrowFraction;
+    escrowBalance = escrowBalance * (1 + escrowYield) + escrowDeposit;
+    cumulativeCarryPaid += carryPaid;
+    cumulativeCarryPaidToGP += gpCashCarry;
+    cumulativeCarryEscrowed += escrowDeposit;
+
+    let lpDistribution = Math.max(0, grossDistPaid - carryPaid);
+    cumulativeGrossDist += grossDistPaid;
+    cumulativeLpDist += lpDistribution;
+
+    const lpOutflow = called + fee + expense;
+    let lpNetCashflow = lpDistribution - lpOutflow;
+    lpCashflows.push(lpNetCashflow);
+    nav = Math.max(0, navBeforeDist);
+
+    rows.push({
+      year,
+      grossReturn,
+      navStart,
+      navForCap,
+      called,
+      grossDist: grossDistPaid,
+      lpDistribution,
+      fee,
+      expense,
+      carryAccrued: carryDueNow,
+      carryAccruedCumulative: cumulativeCarryAccrued,
+      carryPaid,
+      gpCashCarry,
+      escrowDeposit,
+      escrowReleaseToGP: 0,
+      escrowReturnToLP: 0,
+      annualCarryCapAmount: Number.isFinite(annualCap) ? annualCap : null,
+      escrowBalanceEnd: escrowBalance,
+      navEnd: nav
+    });
+  }
+
+  let escrowPayoutToGPFinal = 0;
+  let escrowReturnedToLPFinal = 0;
+  if (rows.length > 0) {
+    const finalGpDue = Math.max(0, finalCarryEntitlement - cumulativeCarryPaidToGP);
+    escrowPayoutToGPFinal = Math.min(escrowBalance, finalGpDue);
+    escrowReturnedToLPFinal = Math.max(0, escrowBalance - escrowPayoutToGPFinal);
+    const finalRow = rows[rows.length - 1];
+    finalRow.escrowReleaseToGP = escrowPayoutToGPFinal;
+    finalRow.escrowReturnToLP = escrowReturnedToLPFinal;
+    finalRow.escrowBalanceEnd = 0;
+    finalRow.lpDistribution += escrowReturnedToLPFinal;
+    const finalLpNet = finalRow.lpDistribution - finalRow.called - finalRow.fee - finalRow.expense;
+    lpCashflows[lpCashflows.length - 1] = finalLpNet;
+    cumulativeLpDist += escrowReturnedToLPFinal;
+    cumulativeCarryPaidToGP += escrowPayoutToGPFinal;
+    escrowBalance = 0;
+  }
+
+  const totalContrib = cumulativeContrib;
+  const totalValueToLP = cumulativeLpDist + nav;
+  const netMultiple = totalContrib > 0 ? totalValueToLP / totalContrib : 0;
+  const irrCashflows = [...lpCashflows];
+  if (irrCashflows.length > 0) {
+    irrCashflows[irrCashflows.length - 1] += nav;
+  }
+  const lpIrr = solveAnnualIrr(irrCashflows);
+  const lpReinvestAltFutureValue = rows.reduce(
+    (sum, row) => sum + row.escrowDeposit * Math.pow(1 + lpAltReinvestRate, Math.max(0, years - row.year)),
+    0
+  );
+  const escrowFutureValue = rows.reduce(
+    (sum, row) => sum + row.escrowDeposit * Math.pow(1 + escrowYield, Math.max(0, years - row.year)),
+    0
+  );
+
+  return {
+    rows,
+    totals: {
+      totalContrib,
+      totalGrossDist: cumulativeGrossDist,
+      totalLpDist: cumulativeLpDist,
+      totalFees: cumulativeFees,
+      totalExpenses: cumulativeExpenses,
+      totalCarryPaid: cumulativeCarryPaid,
+      totalCarryPaidToGP: cumulativeCarryPaidToGP,
+      totalCarryEscrowed: cumulativeCarryEscrowed,
+      escrowPayoutToGPFinal,
+      escrowReturnedToLPFinal,
+      finalCarryEntitlement,
+      escrowBalance,
+      netMultiple,
+      lpIrr,
+      lpReinvestOpportunityCost: Math.max(0, lpReinvestAltFutureValue - escrowFutureValue)
+    }
+  };
+};
 
 // Shared source-of-truth mapping for gross to net TVPI.
 // Anchored at 2.5x gross -> 2.0x net, with widening drag at higher outcomes.
@@ -41,11 +294,11 @@ const BASELINE_MODEL_INPUTS = {
 // REUSABLE COMPONENTS
 // ============================================================================
 
-const Slider = ({ value, onChange, min, max, step = 0.01, label, format = (v) => v, accent = '#1B2A4A' }) => {
+const Slider = ({ value, onChange, min, max, step = 0.01, label, format = (v) => v, accent = '#1B2A4A', disabled = false }) => {
   const percentage = ((value - min) / (max - min)) * 100;
 
   return (
-    <div className="slider-container">
+    <div className={`slider-container ${disabled ? 'disabled' : ''}`}>
       <div className="slider-header">
         <span className="slider-label">{label}</span>
         <span className="slider-value" style={{ color: accent }}>{format(value)}</span>
@@ -57,6 +310,7 @@ const Slider = ({ value, onChange, min, max, step = 0.01, label, format = (v) =>
           max={max}
           step={step}
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(parseFloat(e.target.value))}
           className="slider-input"
           style={{
@@ -189,6 +443,17 @@ const ASIA_SECTION_LINKS = [
   { id: 'asia-execution-governance', label: 'Execution & Governance' },
   { id: 'asia-red-flags', label: 'Red Flags' },
   { id: 'asia-playbook', label: 'LP Playbook' }
+];
+
+const CUSTOM_TERMS_SECTION_LINKS = [
+  { id: 'custom-terms-hero', label: 'Term Summary' },
+  { id: 'custom-terms-model', label: 'Interactive Model' }
+];
+
+const BENCHMARK_SECTION_LINKS = [
+  { id: 'benchmark-hero', label: 'Dataset Overview' },
+  { id: 'benchmark-explorer', label: 'Flexible Explorer' },
+  { id: 'benchmark-table', label: 'Raw Data Analyzer' }
 ];
 
 const ENVIRONMENT_REPORT_FILE = 'pathway-4q25-private-market-environment-report.pdf';
@@ -1723,6 +1988,485 @@ const SingleFundContribNavChart = ({ data, height = 245, xTickStep = 1 }) => {
   return <canvas ref={canvasRef} className="comparison-canvas single-fund-combo-canvas" style={{ width: '100%', height }} />;
 };
 
+const parseCsvRows = (text) => {
+  const cleaned = (text || '').replace(/^\uFEFF/, '');
+  if (!cleaned.trim()) return [];
+  const rows = [];
+  let row = [];
+  let field = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < cleaned.length; i += 1) {
+    const char = cleaned[i];
+    if (char === '"') {
+      if (inQuotes && cleaned[i + 1] === '"') {
+        field += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      row.push(field);
+      field = '';
+      continue;
+    }
+    if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && cleaned[i + 1] === '\n') i += 1;
+      row.push(field);
+      if (row.some((cell) => String(cell || '').trim() !== '')) rows.push(row);
+      row = [];
+      field = '';
+      continue;
+    }
+    field += char;
+  }
+  row.push(field);
+  if (row.some((cell) => String(cell || '').trim() !== '')) rows.push(row);
+  return rows;
+};
+
+const parseUsDateWithPivot = (raw, pivotYear = 50) => {
+  const value = String(raw || '').trim();
+  if (!value) return null;
+  const parts = value.split('/');
+  if (parts.length !== 3) return null;
+  const month = Number(parts[0]);
+  const day = Number(parts[1]);
+  let year = Number(parts[2]);
+  if (!Number.isFinite(month) || !Number.isFinite(day) || !Number.isFinite(year)) return null;
+  if (year < 100) year += year >= pivotYear ? 1900 : 2000;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (
+    !Number.isFinite(date.getTime()) ||
+    date.getUTCFullYear() !== year ||
+    date.getUTCMonth() !== month - 1 ||
+    date.getUTCDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+};
+
+const formatQuarterLabel = (date) => {
+  if (!(date instanceof Date) || !Number.isFinite(date.getTime())) return '';
+  const quarter = Math.floor(date.getUTCMonth() / 3) + 1;
+  return `${date.getUTCFullYear()} Q${quarter}`;
+};
+
+const metricFamilyFromName = (metric) => {
+  const value = String(metric || '').toLowerCase();
+  if (value.startsWith('dpi_')) return 'dpi';
+  if (value.startsWith('tvpi_')) return 'tvpi';
+  if (value.startsWith('irr_')) return 'irr';
+  if (value.startsWith('sample')) return 'count';
+  if (value.startsWith('capitalization')) return 'currency_mm';
+  return 'number';
+};
+
+const prettifyMetricName = (metric) => {
+  const base = String(metric || '')
+    .replace(/_qrtle$/i, '_qrtl')
+    .replace(/_/g, ' ')
+    .trim();
+  return base.replace(/\b\w/g, (ch) => ch.toUpperCase());
+};
+
+const getBenchmarkMetricMeta = (metric) => {
+  const family = metricFamilyFromName(metric);
+  if (family === 'irr') return { family, decimals: 2, label: prettifyMetricName(metric), unit: 'percent' };
+  if (family === 'count') return { family, decimals: 0, label: prettifyMetricName(metric), unit: 'count' };
+  if (family === 'currency_mm') return { family, decimals: 1, label: 'Capitalization ($M)', unit: 'currency_mm' };
+  if (family === 'dpi' || family === 'tvpi') return { family, decimals: 2, label: prettifyMetricName(metric), unit: 'multiple' };
+  return { family, decimals: 2, label: prettifyMetricName(metric), unit: 'number' };
+};
+
+const formatBenchmarkMetricValue = (value, metric, decimalsOverride = null) => {
+  if (!Number.isFinite(value)) return 'n/a';
+  const meta = getBenchmarkMetricMeta(metric);
+  const decimals = Number.isFinite(decimalsOverride) ? decimalsOverride : meta.decimals;
+  if (meta.unit === 'percent') return `${value.toFixed(decimals)}%`;
+  if (meta.unit === 'count') return Math.round(value).toLocaleString();
+  if (meta.unit === 'currency_mm') return `$${value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals })}M`;
+  if (meta.unit === 'multiple') return `${value.toFixed(decimals)}x`;
+  return value.toLocaleString('en-US', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+};
+
+const resolveMetricVariant = (metricsSet, candidate) => {
+  if (metricsSet.has(candidate)) return candidate;
+  if (candidate.includes('_qrtl')) {
+    const alt = candidate.replace('_qrtl', '_qrtle');
+    if (metricsSet.has(alt)) return alt;
+  }
+  if (candidate.includes('_qrtle')) {
+    const alt = candidate.replace('_qrtle', '_qrtl');
+    if (metricsSet.has(alt)) return alt;
+  }
+  return null;
+};
+
+const aggregateValues = (values, method) => {
+  if (!values.length) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  if (method === 'min') return sorted[0];
+  if (method === 'max') return sorted[sorted.length - 1];
+  if (method === 'sum') return sorted.reduce((sum, v) => sum + v, 0);
+  if (method === 'mean') return sorted.reduce((sum, v) => sum + v, 0) / sorted.length;
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+};
+
+const parseVcBenchmarkCsv = (text) => {
+  const rows = parseCsvRows(text);
+  if (rows.length < 2) return null;
+  const headers = rows[0].map((h) => String(h || '').trim());
+  const indexByHeader = new Map(headers.map((h, i) => [h.toLowerCase(), i]));
+  const idxAsOf = indexByHeader.get('as_of');
+  const idxProvider = indexByHeader.get('provider');
+  const idxBenchmark = indexByHeader.get('benchmark');
+  const idxCurrency = indexByHeader.get('currency');
+  const idxSourceFile = indexByHeader.get('source_file');
+  const idxAge = indexByHeader.get('age in quarters');
+  const idxVintage = indexByHeader.get('vintage_year');
+  const idxMetric = indexByHeader.get('metric');
+  const idxValue = indexByHeader.get('value');
+  if ([idxAsOf, idxProvider, idxBenchmark, idxCurrency, idxMetric, idxValue].some((idx) => idx === undefined)) return null;
+
+  const providers = new Set();
+  const benchmarks = new Set();
+  const currencies = new Set();
+  const metrics = new Set();
+  const asOfMap = new Map();
+  let minAge = Number.POSITIVE_INFINITY;
+  let maxAge = Number.NEGATIVE_INFINITY;
+  let minVintage = Number.POSITIVE_INFINITY;
+  let maxVintage = Number.NEGATIVE_INFINITY;
+
+  const parsedRows = rows.slice(1).map((row, rowIdx) => {
+    const asOfRaw = String(row[idxAsOf] || '').trim();
+    const asOfDate = parseUsDateWithPivot(asOfRaw);
+    const asOfTs = asOfDate ? asOfDate.getTime() : null;
+    const provider = String(row[idxProvider] || '').trim();
+    const benchmark = String(row[idxBenchmark] || '').trim();
+    const currency = String(row[idxCurrency] || '').trim();
+    const sourceFile = idxSourceFile !== undefined ? String(row[idxSourceFile] || '').trim() : '';
+    const metric = String(row[idxMetric] || '').trim();
+    const ageInQuartersRaw = idxAge !== undefined ? Number(String(row[idxAge] || '').trim()) : null;
+    const ageInQuarters = Number.isFinite(ageInQuartersRaw) ? ageInQuartersRaw : null;
+    const vintageYearRaw = idxVintage !== undefined ? Number(String(row[idxVintage] || '').trim()) : null;
+    const vintageYear = Number.isFinite(vintageYearRaw) ? vintageYearRaw : null;
+    const valueRaw = String(row[idxValue] || '').trim();
+    const numericValue = valueRaw === '' ? null : Number(valueRaw);
+    const value = Number.isFinite(numericValue) ? numericValue : null;
+
+    if (provider) providers.add(provider);
+    if (benchmark) benchmarks.add(benchmark);
+    if (currency) currencies.add(currency);
+    if (metric) metrics.add(metric);
+    if (asOfDate && asOfTs !== null) {
+      asOfMap.set(asOfTs, {
+        ts: asOfTs,
+        label: formatQuarterLabel(asOfDate),
+        dateLabel: asOfDate.toISOString().slice(0, 10)
+      });
+    }
+    if (Number.isFinite(ageInQuarters)) {
+      minAge = Math.min(minAge, ageInQuarters);
+      maxAge = Math.max(maxAge, ageInQuarters);
+    }
+    if (Number.isFinite(vintageYear)) {
+      minVintage = Math.min(minVintage, vintageYear);
+      maxVintage = Math.max(maxVintage, vintageYear);
+    }
+
+    return {
+      id: rowIdx + 1,
+      asOfRaw,
+      asOfDate,
+      asOfTs,
+      asOfQuarterLabel: asOfDate ? formatQuarterLabel(asOfDate) : asOfRaw,
+      provider,
+      benchmark,
+      currency,
+      sourceFile,
+      ageInQuarters,
+      vintageYear,
+      metric,
+      value
+    };
+  });
+
+  const metricOptions = Array.from(metrics).sort((a, b) => a.localeCompare(b));
+  const asOfOptions = Array.from(asOfMap.values()).sort((a, b) => a.ts - b.ts);
+
+  return {
+    rows: parsedRows,
+    dimensions: {
+      providers: Array.from(providers).sort((a, b) => a.localeCompare(b)),
+      benchmarks: Array.from(benchmarks).sort((a, b) => a.localeCompare(b)),
+      currencies: Array.from(currencies).sort((a, b) => a.localeCompare(b)),
+      metrics: metricOptions,
+      asOfOptions,
+      vintageRange: {
+        min: Number.isFinite(minVintage) ? minVintage : 0,
+        max: Number.isFinite(maxVintage) ? maxVintage : 0
+      },
+      ageRange: {
+        min: Number.isFinite(minAge) ? minAge : 0,
+        max: Number.isFinite(maxAge) ? maxAge : 0
+      }
+    }
+  };
+};
+
+const useVcBenchmarkDataset = () => {
+  const [benchmarkData, setBenchmarkData] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setIsLoading(true);
+      const base = (import.meta && import.meta.env && import.meta.env.BASE_URL) || '/';
+      const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+      const candidates = [
+        vcWorldBenchmarksCsvUrl,
+        `${normalizedBase}VC%20World%20Benchmarks%201993-2025%20Consolidated.csv`,
+        `${normalizedBase}VC World Benchmarks 1993-2025 Consolidated.csv`,
+        '/VC%20World%20Benchmarks%201993-2025%20Consolidated.csv'
+      ];
+      for (const path of candidates) {
+        try {
+          const res = await fetch(path, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const text = await res.text();
+          const parsed = parseVcBenchmarkCsv(text);
+          if (parsed && parsed.rows.length) {
+            if (active) {
+              setBenchmarkData(parsed);
+              setLoadError('');
+              setIsLoading(false);
+            }
+            return;
+          }
+        } catch (_) {
+          // Try next candidate path.
+        }
+      }
+      if (active) {
+        setBenchmarkData(null);
+        setLoadError('Benchmark dataset not found. Expected VC World Benchmarks 1993-2025 Consolidated.csv at site root.');
+        setIsLoading(false);
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return { benchmarkData, loadError, isLoading };
+};
+
+const BenchmarkVintageLineChart = ({
+  series,
+  height = 360,
+  valueFormatter = (value) => String(value),
+  xAxisLabel = 'As-Of Quarter'
+}) => {
+  const containerRef = useRef(null);
+  const [width, setWidth] = useState(960);
+  const [hover, setHover] = useState(null);
+  const safeHeight = Math.max(260, height);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+    const update = () => setWidth(Math.max(640, el.clientWidth || 960));
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const layout = useMemo(() => {
+    const padding = { top: 20, right: 20, bottom: 48, left: 74 };
+    const chartWidth = Math.max(1, width - padding.left - padding.right);
+    const chartHeight = Math.max(1, safeHeight - padding.top - padding.bottom);
+    const allPoints = series.flatMap((line) => line.points).filter((point) => Number.isFinite(point.value));
+    const xKeySet = new Set(allPoints.map((point) => point.xKey));
+    const xKeys = Array.from(xKeySet).sort((a, b) => a - b);
+    const xIndex = new Map(xKeys.map((key, idx) => [key, idx]));
+    const xCount = xKeys.length;
+    const xStep = xCount > 1 ? chartWidth / (xCount - 1) : chartWidth;
+
+    const values = allPoints.map((point) => point.value);
+    const rawMin = values.length ? Math.min(...values) : 0;
+    const rawMax = values.length ? Math.max(...values) : 1;
+    const span = Math.max(1e-9, rawMax - rawMin);
+    const pad = span * 0.08;
+    const yMin = rawMin - pad;
+    const yMax = rawMax + pad;
+    const ySpan = Math.max(1e-9, yMax - yMin);
+
+    const xFor = (xKey) => padding.left + (xCount > 1 ? (xIndex.get(xKey) || 0) * xStep : chartWidth / 2);
+    const yFor = (value) => padding.top + ((yMax - value) / ySpan) * chartHeight;
+    const labelByXKey = new Map();
+    series.forEach((line) => {
+      line.points.forEach((point) => {
+        if (!labelByXKey.has(point.xKey)) labelByXKey.set(point.xKey, point.xLabel);
+      });
+    });
+    return { padding, chartWidth, chartHeight, xKeys, xIndex, xCount, xFor, yFor, yMin, yMax, labelByXKey };
+  }, [series, width, safeHeight]);
+
+  const yTicks = useMemo(() => {
+    const values = [];
+    for (let i = 0; i <= 5; i += 1) {
+      const value = layout.yMin + ((layout.yMax - layout.yMin) * i) / 5;
+      values.push(value);
+    }
+    return values;
+  }, [layout]);
+
+  const pathForLine = (line) => {
+    const sorted = line.points.slice().sort((a, b) => a.xKey - b.xKey);
+    if (!sorted.length) return '';
+    return sorted.map((point, idx) => {
+      const x = layout.xFor(point.xKey);
+      const y = layout.yFor(point.value);
+      return `${idx === 0 ? 'M' : 'L'} ${x.toFixed(2)} ${y.toFixed(2)}`;
+    }).join(' ');
+  };
+
+  const handleMove = (event) => {
+    if (!layout.xKeys.length) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const mouseX = ((event.clientX - rect.left) / rect.width) * width;
+    const mouseY = ((event.clientY - rect.top) / rect.height) * safeHeight;
+    const nearestXKey = layout.xKeys.reduce((closest, key) => (
+      Math.abs(layout.xFor(key) - mouseX) < Math.abs(layout.xFor(closest) - mouseX) ? key : closest
+    ), layout.xKeys[0]);
+    const candidates = series
+      .map((line) => ({ line, point: line.pointByXKey.get(nearestXKey) }))
+      .filter((entry) => entry.point && Number.isFinite(entry.point.value));
+    if (!candidates.length) {
+      setHover(null);
+      return;
+    }
+    const nearest = candidates.reduce((best, entry) => {
+      const y = layout.yFor(entry.point.value);
+      const dist = Math.abs(y - mouseY);
+      return dist < best.dist ? { ...entry, dist } : best;
+    }, { ...candidates[0], dist: Number.POSITIVE_INFINITY });
+    const hoverX = layout.xFor(nearestXKey);
+    const hoverY = layout.yFor(nearest.point.value);
+    setHover({
+      xKey: nearestXKey,
+      lineKey: nearest.line.key,
+      lineLabel: nearest.line.label,
+      color: nearest.line.color,
+      point: nearest.point,
+      x: hoverX,
+      y: hoverY
+    });
+  };
+
+  const xTickStep = Math.max(1, Math.ceil(layout.xKeys.length / 10));
+
+  return (
+    <div ref={containerRef} className="benchmark-chart-shell">
+      <div className="benchmark-chart-wrap" style={{ height: safeHeight }}>
+        <svg
+          className="benchmark-series-svg"
+          viewBox={`0 0 ${width} ${safeHeight}`}
+          preserveAspectRatio="none"
+          onMouseMove={handleMove}
+          onMouseLeave={() => setHover(null)}
+          role="img"
+          aria-label="Vintage metric line chart"
+        >
+        {yTicks.map((tick) => {
+          const y = layout.yFor(tick);
+          return (
+            <g key={`y-${tick}`}>
+              <line x1={layout.padding.left} x2={width - layout.padding.right} y1={y} y2={y} stroke="#E5EBF4" strokeWidth="1" />
+              <text x={layout.padding.left - 8} y={y + 4} textAnchor="end" fontSize="11" fill="#6B7488">
+                {valueFormatter(tick)}
+              </text>
+            </g>
+          );
+        })}
+
+        {layout.xKeys.map((xKey, idx) => {
+          if (idx !== 0 && idx !== layout.xKeys.length - 1 && idx % xTickStep !== 0) return null;
+          const x = layout.xFor(xKey);
+          const label = layout.labelByXKey.get(xKey) || String(xKey);
+          return (
+            <text key={`x-${xKey}`} x={x} y={safeHeight - layout.padding.bottom + 18} textAnchor="middle" fontSize="11" fill="#6B7488">
+              {label}
+            </text>
+          );
+        })}
+
+        {series.map((line) => {
+          const active = !hover || hover.lineKey === line.key;
+          return (
+            <path
+              key={line.key}
+              d={pathForLine(line)}
+              fill="none"
+              stroke={line.color}
+              strokeWidth={active ? 2.5 : 1.2}
+              opacity={active ? 0.98 : 0.2}
+            />
+          );
+        })}
+
+        {hover && (
+          <>
+            <line
+              x1={hover.x}
+              x2={hover.x}
+              y1={layout.padding.top}
+              y2={safeHeight - layout.padding.bottom}
+              stroke="#7A869D"
+              strokeDasharray="4 4"
+              strokeWidth="1"
+            />
+            <circle cx={hover.x} cy={hover.y} r="4.5" fill="#FFFFFF" stroke={hover.color} strokeWidth="2.2" />
+          </>
+        )}
+
+        <text
+          x={(layout.padding.left + (width - layout.padding.right)) / 2}
+          y={safeHeight - 6}
+          textAnchor="middle"
+          fontSize="11"
+          fill="#5B657A"
+        >
+          {xAxisLabel}
+        </text>
+        </svg>
+      </div>
+      <div className="benchmark-hover-readout" role="status" aria-live="polite">
+        {hover ? (
+          <>
+            <span className="benchmark-hover-readout-title" style={{ color: hover.color }}>{hover.lineLabel}</span>
+            <span className="benchmark-hover-readout-sep">|</span>
+            <span className="benchmark-hover-readout-axis">{hover.point.xLabel}</span>
+            <span className="benchmark-hover-readout-value">{valueFormatter(hover.point.value)}</span>
+          </>
+        ) : (
+          <span className="benchmark-hover-readout-empty">Hover any line to inspect point values.</span>
+        )}
+      </div>
+    </div>
+  );
+};
+
 const parseRvpiCsv = (text) => {
   const cleaned = (text || '').replace(/^\uFEFF/, '').trim();
   if (!cleaned) return null;
@@ -2318,6 +3062,20 @@ const Header = ({ compactControls, onToggleCompactControls, activePage, onNaviga
                 >
                   Market Environment
                 </button>
+                <button
+                  type="button"
+                  className={`header-menu-item ${activePage === 'custom-terms' ? 'active' : ''}`}
+                  onClick={() => handleNavigate('custom-terms')}
+                >
+                  EDIF IV Economic Terms Comparison
+                </button>
+                <button
+                  type="button"
+                  className={`header-menu-item ${activePage === 'benchmarks' ? 'active' : ''}`}
+                  onClick={() => handleNavigate('benchmarks')}
+                >
+                  VC Benchmarks
+                </button>
                 <a
                   className="header-menu-item header-menu-link"
                   href="mailto:newinvestors@pathwaycapital.com?subject=Pathway%20Education%20Inquiry"
@@ -2340,7 +3098,7 @@ const Header = ({ compactControls, onToggleCompactControls, activePage, onNaviga
 
 const StickyContactPrompt = ({ activePage }) => {
   const [collapsed, setCollapsed] = useState(false);
-  if (activePage === 'environment') return null;
+  if (activePage === 'environment' || activePage === 'custom-terms' || activePage === 'benchmarks') return null;
 
   const pageCopy = activePage === 'portfolio'
     ? { kicker: 'Portfolio construction support', title: 'Talk to Pathway about pacing and exposure' }
@@ -2348,6 +3106,10 @@ const StickyContactPrompt = ({ activePage }) => {
       ? { kicker: 'Liquidity strategy support', title: 'Talk to Pathway about liquidity planning' }
       : activePage === 'asia'
         ? { kicker: 'Asia private equity support', title: 'Talk to Pathway about Asia PE portfolio design' }
+        : activePage === 'benchmarks'
+          ? { kicker: 'Benchmark analysis support', title: 'Talk to Pathway about benchmark interpretation and portfolio implications' }
+        : activePage === 'custom-terms'
+          ? { kicker: 'Custom term-sheet support', title: 'Talk to Pathway about custom waterfall economics' }
       : { kicker: 'Private markets economics support', title: 'Talk to Pathway about gross-to-net outcomes' };
   const subject = `Pathway Education Inquiry - ${activePage || 'economics'}`;
   const href = `mailto:newinvestors@pathwaycapital.com?subject=${encodeURIComponent(subject)}`;
@@ -5545,6 +6307,35 @@ const UnderinvestingSection = ({
     }
     return { labels, commitmentGross, investedGross };
   }, [grossMultiple]);
+  const feeExpenseCurve = useMemo(() => {
+    const labels = [];
+    const feeExpensePctCommitment = [];
+    const feeExpensePctDeployed = [];
+    const commitmentCapital = BASELINE_MODEL_INPUTS.fundSize * 1e6;
+
+    for (let d = 0.6; d <= 1.0001; d += 0.02) {
+      const deployment = Number(d.toFixed(2));
+      const model = buildQuarterlySchedule({
+        fundSizeM: commitmentCapital,
+        fundLife: BASELINE_MODEL_INPUTS.fundLife,
+        investmentPeriod: BASELINE_MODEL_INPUTS.investmentPeriod,
+        grossMultiple,
+        mgmtFeeRate: BASELINE_MODEL_INPUTS.mgmtFeeRate,
+        expenseRate: BASELINE_MODEL_INPUTS.expenseRate,
+        carryRate: BASELINE_MODEL_INPUTS.carryRate,
+        hurdleRate: BASELINE_MODEL_INPUTS.hurdleRate,
+        deploymentRate: deployment
+      });
+      const totalFeeExpense = model.totals.totalMgmtFees + model.totals.totalExpenses;
+      const deployedCapital = Math.max(1, model.totals.deployedCapitalTarget);
+
+      labels.push(`${(deployment * 100).toFixed(0)}%`);
+      feeExpensePctCommitment.push(totalFeeExpense / commitmentCapital);
+      feeExpensePctDeployed.push(totalFeeExpense / deployedCapital);
+    }
+
+    return { labels, feeExpensePctCommitment, feeExpensePctDeployed };
+  }, [grossMultiple]);
   const currentDeploymentIndex = useMemo(() => {
     const rawIndex = Math.round((deploymentRate - 0.6) / 0.02);
     return Math.max(0, Math.min(deploymentCurve.labels.length - 1, rawIndex));
@@ -5591,36 +6382,73 @@ const UnderinvestingSection = ({
           />
         </div>
 
-        <div className="tradeoff-curve underinvesting-curve">
-          <div className="tradeoff-curve-title">Deployment Rate vs Gross Outcome</div>
-          <div className="underinvesting-legend">
-            <div className="underinvesting-legend-item">
-              <span className="underinvesting-legend-line" style={{ background: '#1B2A4A' }}></span>
-              <span>Commitment TVPI</span>
+        <div className="underinvesting-charts">
+          <div className="tradeoff-curve underinvesting-curve">
+            <div className="tradeoff-curve-title">Deployment Rate vs Gross Outcome</div>
+            <div className="underinvesting-legend">
+              <div className="underinvesting-legend-item">
+                <span className="underinvesting-legend-line" style={{ background: '#1B2A4A' }}></span>
+                <span>Commitment TVPI</span>
+              </div>
+              <div className="underinvesting-legend-item">
+                <span className="underinvesting-legend-line" style={{ background: '#2D6B4F' }}></span>
+                <span>Invested MOIC</span>
+              </div>
             </div>
-            <div className="underinvesting-legend-item">
-              <span className="underinvesting-legend-line" style={{ background: '#2D6B4F' }}></span>
-              <span>Invested MOIC</span>
-            </div>
+            <ComparisonChart
+              seriesA={deploymentCurve.commitmentGross}
+              seriesB={deploymentCurve.investedGross}
+              labelA="Commitment TVPI"
+              labelB="Invested MOIC"
+              xLabels={deploymentCurve.labels}
+              xTickStep={5}
+              yFormatter={(v) => `${v.toFixed(2)}x`}
+              colorA="#1B2A4A"
+              colorB="#2D6B4F"
+              height={210}
+              showLegend={false}
+              marker={{
+                index: currentDeploymentIndex,
+                label: `Current ${(deploymentRate * 100).toFixed(0)}%`,
+                color: '#C9A84C'
+              }}
+            />
           </div>
-          <ComparisonChart
-            seriesA={deploymentCurve.commitmentGross}
-            seriesB={deploymentCurve.investedGross}
-            labelA="Commitment TVPI"
-            labelB="Invested MOIC"
-            xLabels={deploymentCurve.labels}
-            xTickStep={5}
-            yFormatter={(v) => `${v.toFixed(2)}x`}
-            colorA="#1B2A4A"
-            colorB="#2D6B4F"
-            height={220}
-            showLegend={false}
-            marker={{
-              index: currentDeploymentIndex,
-              label: `Current ${(deploymentRate * 100).toFixed(0)}%`,
-              color: '#C9A84C'
-            }}
-          />
+
+          <div className="tradeoff-curve underinvesting-curve">
+            <div className="tradeoff-curve-title">Fee + Expense Load by Capital Base</div>
+            <div className="underinvesting-legend">
+              <div className="underinvesting-legend-item">
+                <span className="underinvesting-legend-line" style={{ background: '#B5473A' }}></span>
+                <span>% of Committed</span>
+              </div>
+              <div className="underinvesting-legend-item">
+                <span className="underinvesting-legend-line" style={{ background: '#C9A84C' }}></span>
+                <span>% of Deployed</span>
+              </div>
+            </div>
+            <ComparisonChart
+              seriesA={feeExpenseCurve.feeExpensePctCommitment}
+              seriesB={feeExpenseCurve.feeExpensePctDeployed}
+              labelA="% of Committed"
+              labelB="% of Deployed"
+              xLabels={feeExpenseCurve.labels}
+              xTickStep={5}
+              yFormatter={(v) => formatPercent(v)}
+              colorA="#B5473A"
+              colorB="#C9A84C"
+              height={210}
+              showLegend={false}
+              marker={{
+                index: currentDeploymentIndex,
+                label: `Current ${(deploymentRate * 100).toFixed(0)}%`,
+                color: '#C9A84C'
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="tradeoff-curve underinvesting-curve">
           <p className="bridge-note">
             Green stays at invested-basis gross MOIC; navy shows the translated commitment-basis
             gross TVPI as deployment changes.
@@ -7147,6 +7975,612 @@ const EnvironmentBuildPlanSection = () => (
     </div>
   </section>
 );
+
+const BenchmarkHeroSection = ({ benchmarkData, isLoading, loadError }) => {
+  const rowCount = benchmarkData?.rows?.length || 0;
+  const asOfOptions = benchmarkData?.dimensions?.asOfOptions || [];
+  const firstAsOf = asOfOptions[0];
+  const lastAsOf = asOfOptions[asOfOptions.length - 1];
+  const metricCount = benchmarkData?.dimensions?.metrics?.length || 0;
+  const vintageMin = benchmarkData?.dimensions?.vintageRange?.min || 0;
+  const vintageMax = benchmarkData?.dimensions?.vintageRange?.max || 0;
+
+  return (
+    <section id="benchmark-hero" className="hero-section benchmark-hero">
+      <div className="pathway-badge">Benchmark Lab</div>
+      <h1>VC World Benchmarks Explorer</h1>
+      <p className="hero-subtitle">Interactive analysis of the MSCI World VC benchmark panel (1993-2025)</p>
+      <p className="hero-purpose-note">
+        Use this tab to pivot by metric, vintage, quarter, and age-in-quarters with flexible aggregation.
+        The UI stays schema-driven so it can adapt if new providers/benchmarks are added later.
+      </p>
+      {isLoading ? (
+        <p className="portfolio-inline-note">Loading benchmark dataset...</p>
+      ) : loadError ? (
+        <p className="portfolio-inline-note">{loadError}</p>
+      ) : (
+        <div className="metrics-row benchmark-hero-metrics">
+          <MetricCard label="Rows" value={rowCount.toLocaleString()} subtext="Observations" accent="#1B2A4A" />
+          <MetricCard label="Metric Fields" value={String(metricCount)} subtext="Long-format series" accent="#2D6B4F" />
+          <MetricCard
+            label="As-Of Range"
+            value={firstAsOf && lastAsOf ? `${firstAsOf.dateLabel} to ${lastAsOf.dateLabel}` : 'n/a'}
+            subtext="Calendar coverage"
+            accent="#4A7BA7"
+          />
+          <MetricCard label="Vintage Range" value={`${vintageMin}-${vintageMax}`} subtext="Funds included" accent="#A8892E" />
+        </div>
+      )}
+    </section>
+  );
+};
+
+const BenchmarkExplorerSection = ({ benchmarkData, isLoading, loadError }) => {
+  const [provider, setProvider] = useState('all');
+  const [benchmark, setBenchmark] = useState('all');
+  const [currency, setCurrency] = useState('all');
+  const [selectedMetric, setSelectedMetric] = useState('');
+  const [alignmentMode, setAlignmentMode] = useState('calendar');
+  const [aggregation, setAggregation] = useState('median');
+  const [minVintage, setMinVintage] = useState(null);
+  const [maxVintage, setMaxVintage] = useState(null);
+  const [minAge, setMinAge] = useState(null);
+  const [maxAge, setMaxAge] = useState(null);
+  const [asOfStartTs, setAsOfStartTs] = useState(null);
+  const [asOfEndTs, setAsOfEndTs] = useState(null);
+  const [selectedVintages, setSelectedVintages] = useState([]);
+  const [defaultLineCount, setDefaultLineCount] = useState(12);
+
+  const dims = benchmarkData?.dimensions;
+  const defaultMetric = dims
+    ? dims.metrics.includes('irr_median')
+      ? 'irr_median'
+      : dims.metrics.includes('tvpi_median')
+        ? 'tvpi_median'
+        : dims.metrics[0] || ''
+    : '';
+  const resolvedMetric = dims && selectedMetric && dims.metrics.includes(selectedMetric)
+    ? selectedMetric
+    : defaultMetric;
+  const resolvedMinVintage = dims ? (Number.isFinite(minVintage) ? minVintage : dims.vintageRange.min) : 0;
+  const resolvedMaxVintage = dims ? (Number.isFinite(maxVintage) ? maxVintage : dims.vintageRange.max) : 0;
+  const resolvedMinAge = dims ? (Number.isFinite(minAge) ? minAge : dims.ageRange.min) : 0;
+  const resolvedMaxAge = dims ? (Number.isFinite(maxAge) ? maxAge : dims.ageRange.max) : 0;
+  const defaultAsOfStartTs = dims?.asOfOptions?.[0]?.ts ?? null;
+  const defaultAsOfEndTs = dims?.asOfOptions?.[dims.asOfOptions.length - 1]?.ts ?? null;
+  const resolvedAsOfStartTs = asOfStartTs ?? defaultAsOfStartTs;
+  const resolvedAsOfEndTs = asOfEndTs ?? defaultAsOfEndTs;
+
+  const filteredMetricRows = useMemo(() => {
+    if (!benchmarkData || !resolvedMetric) return [];
+    const asOfFloor = Number.isFinite(resolvedAsOfStartTs) && Number.isFinite(resolvedAsOfEndTs)
+      ? Math.min(resolvedAsOfStartTs, resolvedAsOfEndTs)
+      : resolvedAsOfStartTs;
+    const asOfCeiling = Number.isFinite(resolvedAsOfStartTs) && Number.isFinite(resolvedAsOfEndTs)
+      ? Math.max(resolvedAsOfStartTs, resolvedAsOfEndTs)
+      : resolvedAsOfEndTs;
+    return benchmarkData.rows.filter((row) => {
+      if (row.value === null || !Number.isFinite(row.value)) return false;
+      if (row.metric !== resolvedMetric) return false;
+      if (provider !== 'all' && row.provider !== provider) return false;
+      if (benchmark !== 'all' && row.benchmark !== benchmark) return false;
+      if (currency !== 'all' && row.currency !== currency) return false;
+      if (Number.isFinite(row.vintageYear) && (row.vintageYear < resolvedMinVintage || row.vintageYear > resolvedMaxVintage)) return false;
+      if (Number.isFinite(row.ageInQuarters) && (row.ageInQuarters < resolvedMinAge || row.ageInQuarters > resolvedMaxAge)) return false;
+      if (Number.isFinite(row.asOfTs) && asOfFloor !== null && row.asOfTs < asOfFloor) return false;
+      if (Number.isFinite(row.asOfTs) && asOfCeiling !== null && row.asOfTs > asOfCeiling) return false;
+      return true;
+    });
+  }, [
+    benchmarkData,
+    resolvedMetric,
+    provider,
+    benchmark,
+    currency,
+    resolvedMinVintage,
+    resolvedMaxVintage,
+    resolvedMinAge,
+    resolvedMaxAge,
+    resolvedAsOfStartTs,
+    resolvedAsOfEndTs
+  ]);
+
+  const availableVintages = useMemo(() => {
+    const set = new Set();
+    filteredMetricRows.forEach((row) => {
+      if (Number.isFinite(row.vintageYear)) set.add(row.vintageYear);
+    });
+    return Array.from(set).sort((a, b) => a - b);
+  }, [filteredMetricRows]);
+
+  const resolvedVintages = useMemo(() => {
+    const availableSet = new Set(availableVintages);
+    const manuallySelected = selectedVintages.filter((v) => availableSet.has(v));
+    if (manuallySelected.length) return manuallySelected.sort((a, b) => a - b);
+    const n = Math.max(1, Math.min(defaultLineCount, availableVintages.length));
+    return availableVintages.slice(Math.max(0, availableVintages.length - n));
+  }, [selectedVintages, availableVintages, defaultLineCount]);
+
+  const chartSeries = useMemo(() => {
+    const useAgeAxis = alignmentMode === 'age' || alignmentMode === 'time-zero';
+    const colorForVintage = (vintage) => {
+      const hue = (vintage * 31) % 360;
+      return `hsl(${hue}, 60%, 42%)`;
+    };
+    const series = [];
+    resolvedVintages.forEach((vintage) => {
+      const rows = filteredMetricRows.filter((row) => row.vintageYear === vintage);
+      const buckets = new Map();
+      rows.forEach((row) => {
+        const xKey = useAgeAxis ? row.ageInQuarters : row.asOfTs;
+        const xLabel = useAgeAxis
+          ? (Number.isFinite(row.ageInQuarters) ? `Q${row.ageInQuarters}` : '')
+          : (row.asOfQuarterLabel || row.asOfRaw);
+        if (!Number.isFinite(xKey) || !xLabel) return;
+        if (!buckets.has(xKey)) buckets.set(xKey, { values: [], xLabel });
+        buckets.get(xKey).values.push(row.value);
+      });
+      let points = Array.from(buckets.entries())
+        .map(([xKey, entry]) => ({
+          xKey,
+          xLabel: entry.xLabel,
+          value: aggregateValues(entry.values, aggregation)
+        }))
+        .filter((point) => Number.isFinite(point.value))
+        .sort((a, b) => a.xKey - b.xKey);
+      if (alignmentMode === 'time-zero' && points.length) {
+        const firstAge = points[0].xKey;
+        points = points.map((point) => {
+          const shiftedQuarter = point.xKey - firstAge + 1;
+          return {
+            ...point,
+            xKey: shiftedQuarter,
+            xLabel: `Q${shiftedQuarter}`
+          };
+        });
+      }
+      if (!points.length) return;
+      series.push({
+        key: `vintage-${vintage}`,
+        label: `Vintage ${vintage}`,
+        vintage,
+        color: colorForVintage(vintage),
+        points,
+        pointByXKey: new Map(points.map((point) => [point.xKey, point]))
+      });
+    });
+    return series;
+  }, [resolvedVintages, filteredMetricRows, alignmentMode, aggregation]);
+
+  const summary = useMemo(() => {
+    const values = filteredMetricRows.map((row) => row.value);
+    if (!values.length) return null;
+    return {
+      obs: values.length,
+      min: Math.min(...values),
+      max: Math.max(...values),
+      mean: aggregateValues(values, 'mean'),
+      median: aggregateValues(values, 'median')
+    };
+  }, [filteredMetricRows]);
+
+  const selectedMetricMeta = getBenchmarkMetricMeta(resolvedMetric);
+  const xAxisLabel = alignmentMode === 'time-zero'
+    ? 'Age in Quarters Since First Observation (Q1 = each vintage start)'
+    : alignmentMode === 'age'
+      ? 'Age in Quarters (Absolute)'
+      : 'As-Of Quarter (Calendar Time)';
+
+  const handleVintageSelect = (event) => {
+    const values = Array.from(event.target.selectedOptions).map((opt) => Number(opt.value)).filter((value) => Number.isFinite(value));
+    setSelectedVintages(values);
+  };
+
+  return (
+    <section id="benchmark-explorer" className="content-section">
+      <h2>Flexible Explorer</h2>
+      <p>
+        Plot one metric at a time with one line per vintage. Toggle between calendar-time and
+        time-zero alignment by fund age to inspect when outcomes become mostly baked in.
+      </p>
+      <div className="interactive-block">
+        {isLoading ? (
+          <p className="portfolio-inline-note">Loading benchmark dataset...</p>
+        ) : loadError ? (
+          <p className="portfolio-inline-note">{loadError}</p>
+        ) : !benchmarkData ? (
+          <p className="portfolio-inline-note">No benchmark data loaded.</p>
+        ) : (
+          <>
+            <div className="benchmark-control-grid">
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Metric</span>
+                <select className="environment-select" value={resolvedMetric} onChange={(e) => setSelectedMetric(e.target.value)}>
+                  {dims.metrics.map((metric) => (
+                    <option key={metric} value={metric}>{getBenchmarkMetricMeta(metric).label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Time Basis</span>
+                <select className="environment-select" value={alignmentMode} onChange={(e) => setAlignmentMode(e.target.value)}>
+                  <option value="calendar">Calendar Time (As-Of Quarter)</option>
+                  <option value="age">Age in Quarters (Absolute)</option>
+                  <option value="time-zero">Time Zero (Each Vintage Starts at Q1)</option>
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Duplicate Aggregation</span>
+                <select className="environment-select" value={aggregation} onChange={(e) => setAggregation(e.target.value)}>
+                  <option value="median">Median</option>
+                  <option value="mean">Mean</option>
+                  <option value="min">Min</option>
+                  <option value="max">Max</option>
+                  <option value="sum">Sum</option>
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Default Line Count</span>
+                <select className="environment-select" value={defaultLineCount} onChange={(e) => setDefaultLineCount(Number(e.target.value))}>
+                  {[8, 12, 16, 24, 32].map((count) => (
+                    <option key={count} value={count}>Latest {count}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Provider</span>
+                <select className="environment-select" value={provider} onChange={(e) => setProvider(e.target.value)}>
+                  <option value="all">All</option>
+                  {dims.providers.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Benchmark</span>
+                <select className="environment-select" value={benchmark} onChange={(e) => setBenchmark(e.target.value)}>
+                  <option value="all">All</option>
+                  {dims.benchmarks.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Currency</span>
+                <select className="environment-select" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                  <option value="all">All</option>
+                  {dims.currencies.map((item) => (
+                    <option key={item} value={item}>{item}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="environment-toolbar-group benchmark-vintage-picker">
+                <span className="environment-toolbar-label">Vintage Lines</span>
+                <select className="environment-select benchmark-vintage-select" multiple value={resolvedVintages.map(String)} onChange={handleVintageSelect}>
+                  {availableVintages.map((vintage) => (
+                    <option key={vintage} value={vintage}>Vintage {vintage}</option>
+                  ))}
+                </select>
+                <div className="benchmark-vintage-picker-actions">
+                  <button type="button" className="environment-page-btn" onClick={() => setSelectedVintages(availableVintages.slice(-12))}>Latest 12</button>
+                  <button type="button" className="environment-page-btn" onClick={() => setSelectedVintages(availableVintages.slice(-20))}>Latest 20</button>
+                  <button type="button" className="environment-page-btn" onClick={() => setSelectedVintages(availableVintages)}>All</button>
+                  <button type="button" className="environment-page-btn" onClick={() => setSelectedVintages([])}>Auto</button>
+                </div>
+              </div>
+            </div>
+
+            <div className="sliders-grid benchmark-range-grid">
+              <Slider
+                label="Min Vintage"
+                min={dims.vintageRange.min}
+                max={dims.vintageRange.max}
+                step={1}
+                value={resolvedMinVintage}
+                onChange={(value) => setMinVintage(Math.min(value, resolvedMaxVintage))}
+                format={(value) => String(Math.round(value))}
+                accent="#1B2A4A"
+              />
+              <Slider
+                label="Max Vintage"
+                min={dims.vintageRange.min}
+                max={dims.vintageRange.max}
+                step={1}
+                value={resolvedMaxVintage}
+                onChange={(value) => setMaxVintage(Math.max(value, resolvedMinVintage))}
+                format={(value) => String(Math.round(value))}
+                accent="#2D6B4F"
+              />
+              <Slider
+                label="Min Age (Quarters)"
+                min={dims.ageRange.min}
+                max={dims.ageRange.max}
+                step={1}
+                value={resolvedMinAge}
+                onChange={(value) => setMinAge(Math.min(value, resolvedMaxAge))}
+                format={(value) => `Q${Math.round(value)}`}
+                accent="#4A7BA7"
+              />
+              <Slider
+                label="Max Age (Quarters)"
+                min={dims.ageRange.min}
+                max={dims.ageRange.max}
+                step={1}
+                value={resolvedMaxAge}
+                onChange={(value) => setMaxAge(Math.max(value, resolvedMinAge))}
+                format={(value) => `Q${Math.round(value)}`}
+                accent="#A8892E"
+              />
+            </div>
+
+            {dims.asOfOptions.length > 0 && (
+              <div className="benchmark-date-range">
+                <div className="environment-toolbar-label">As-Of Date Window</div>
+                <div className="benchmark-date-controls">
+                  <select
+                    className="environment-select"
+                    value={resolvedAsOfStartTs ?? ''}
+                    onChange={(e) => setAsOfStartTs(Number(e.target.value))}
+                  >
+                    {dims.asOfOptions.map((opt) => (
+                      <option key={`start-${opt.ts}`} value={opt.ts}>{opt.dateLabel}</option>
+                    ))}
+                  </select>
+                  <span>to</span>
+                  <select
+                    className="environment-select"
+                    value={resolvedAsOfEndTs ?? ''}
+                    onChange={(e) => setAsOfEndTs(Number(e.target.value))}
+                  >
+                    {dims.asOfOptions.map((opt) => (
+                      <option key={`end-${opt.ts}`} value={opt.ts}>{opt.dateLabel}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+
+            {chartSeries.length ? (
+              <>
+                <BenchmarkVintageLineChart
+                  series={chartSeries}
+                  xAxisLabel={xAxisLabel}
+                  valueFormatter={(value) => formatBenchmarkMetricValue(value, resolvedMetric, selectedMetricMeta.family === 'currency_mm' ? 0 : selectedMetricMeta.decimals)}
+                />
+                <div className="benchmark-vintage-legend">
+                  {chartSeries.map((line) => (
+                    <span key={`legend-${line.key}`} className="benchmark-vintage-chip" style={{ borderColor: line.color }}>
+                      <span className="benchmark-vintage-dot" style={{ backgroundColor: line.color }} />
+                      {line.label}
+                    </span>
+                  ))}
+                </div>
+                <div className="metrics-row benchmark-summary-metrics">
+                  <MetricCard label="Filtered Rows" value={filteredMetricRows.length.toLocaleString()} subtext="After filters" accent="#1B2A4A" />
+                  <MetricCard label="Vintages Visible" value={chartSeries.length.toLocaleString()} subtext={`Available ${availableVintages.length}`} accent="#A8892E" />
+                  <MetricCard
+                    label="Overall Median"
+                    value={summary ? formatBenchmarkMetricValue(summary.median, resolvedMetric) : 'n/a'}
+                    subtext={`${summary?.obs || 0} points`}
+                    accent="#2D6B4F"
+                  />
+                  <MetricCard
+                    label="Mean"
+                    value={summary ? formatBenchmarkMetricValue(summary.mean, resolvedMetric) : 'n/a'}
+                    subtext={summary ? `Min ${formatBenchmarkMetricValue(summary.min, resolvedMetric)}` : 'n/a'}
+                    accent="#4A7BA7"
+                  />
+                  <MetricCard
+                    label="Max"
+                    value={summary ? formatBenchmarkMetricValue(summary.max, resolvedMetric) : 'n/a'}
+                    subtext={summary ? `Agg: ${aggregation}` : 'n/a'}
+                    accent="#A8892E"
+                  />
+                </div>
+              </>
+            ) : (
+              <p className="portfolio-inline-note">No rows match the current filter combination for the selected metric and vintages.</p>
+            )}
+          </>
+        )}
+      </div>
+    </section>
+  );
+};
+
+const BenchmarkTableSection = ({ benchmarkData, isLoading, loadError }) => {
+  const [metricFilter, setMetricFilter] = useState('all');
+  const [query, setQuery] = useState('');
+  const [sortBy, setSortBy] = useState('asOfTs');
+  const [sortDir, setSortDir] = useState('desc');
+  const [rowLimit, setRowLimit] = useState(120);
+
+  const dims = benchmarkData?.dimensions;
+  const resolvedMetricFilter = dims?.metrics?.includes(metricFilter) ? metricFilter : 'all';
+
+  const sortedRows = useMemo(() => {
+    if (!benchmarkData) return [];
+    const q = query.trim().toLowerCase();
+    const base = benchmarkData.rows.filter((row) => {
+      if (resolvedMetricFilter !== 'all' && row.metric !== resolvedMetricFilter) return false;
+      if (!q) return true;
+      return [
+        row.provider,
+        row.benchmark,
+        row.currency,
+        row.metric,
+        row.sourceFile,
+        String(row.vintageYear ?? ''),
+        row.asOfRaw
+      ].join(' ').toLowerCase().includes(q);
+    });
+    base.sort((a, b) => {
+      const aVal = a[sortBy];
+      const bVal = b[sortBy];
+      if (aVal === null || aVal === undefined) return 1;
+      if (bVal === null || bVal === undefined) return -1;
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return sortDir === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+      const textCmp = String(aVal).localeCompare(String(bVal));
+      return sortDir === 'asc' ? textCmp : -textCmp;
+    });
+    return base;
+  }, [benchmarkData, resolvedMetricFilter, query, sortBy, sortDir, rowLimit]);
+  const tableRows = useMemo(() => sortedRows.slice(0, rowLimit), [sortedRows, rowLimit]);
+
+  const exportFilteredRows = () => {
+    if (!sortedRows.length) return;
+    const headers = ['as_of', 'provider', 'benchmark', 'currency', 'source_file', 'Age in Quarters', 'vintage_year', 'metric', 'value'];
+    const csvCell = (value) => {
+      const text = value === null || value === undefined ? '' : String(value);
+      if (/[",\n]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
+      return text;
+    };
+    const lines = sortedRows.map((row) => ([
+      row.asOfRaw,
+      row.provider,
+      row.benchmark,
+      row.currency,
+      row.sourceFile,
+      row.ageInQuarters,
+      row.vintageYear,
+      row.metric,
+      row.value
+    ].map(csvCell).join(',')));
+    const csvText = [headers.join(','), ...lines].join('\n');
+    const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const stamp = new Date().toISOString().slice(0, 10);
+    link.href = url;
+    link.download = `vc-benchmark-filtered-${stamp}.csv`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <section id="benchmark-table" className="content-section">
+      <h2>Raw Data Analyzer</h2>
+      <p>
+        This view is for row-level inspection and ad hoc filtering. Use it to audit source-file coverage,
+        spot outliers, and verify exact metric datapoints behind the charted aggregates.
+      </p>
+      <div className="interactive-block">
+        {isLoading ? (
+          <p className="portfolio-inline-note">Loading benchmark dataset...</p>
+        ) : loadError ? (
+          <p className="portfolio-inline-note">{loadError}</p>
+        ) : !benchmarkData ? (
+          <p className="portfolio-inline-note">No benchmark data loaded.</p>
+        ) : (
+          <>
+            <div className="benchmark-table-toolbar">
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Metric Filter</span>
+                <select className="environment-select" value={resolvedMetricFilter} onChange={(e) => setMetricFilter(e.target.value)}>
+                  <option value="all">All Metrics</option>
+                  {dims.metrics.map((metric) => (
+                    <option key={metric} value={metric}>{getBenchmarkMetricMeta(metric).label}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Search</span>
+                <input
+                  className="environment-select benchmark-search-input"
+                  type="text"
+                  placeholder="provider, benchmark, metric, source file..."
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                />
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Sort By</span>
+                <select className="environment-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+                  <option value="asOfTs">As-Of Date</option>
+                  <option value="vintageYear">Vintage Year</option>
+                  <option value="ageInQuarters">Age in Quarters</option>
+                  <option value="metric">Metric</option>
+                  <option value="value">Value</option>
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Direction</span>
+                <select className="environment-select" value={sortDir} onChange={(e) => setSortDir(e.target.value)}>
+                  <option value="desc">Descending</option>
+                  <option value="asc">Ascending</option>
+                </select>
+              </div>
+              <div className="environment-toolbar-group">
+                <span className="environment-toolbar-label">Rows</span>
+                <select className="environment-select" value={rowLimit} onChange={(e) => setRowLimit(Number(e.target.value))}>
+                  {[50, 120, 250, 500].map((n) => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="environment-toolbar-group benchmark-export-group">
+                <span className="environment-toolbar-label">Export</span>
+                <button type="button" className="environment-page-btn benchmark-export-btn" onClick={exportFilteredRows}>
+                  Export Filtered CSV
+                </button>
+              </div>
+            </div>
+
+            <div className="environment-table-wrap benchmark-table-wrap">
+              <table className="environment-table benchmark-data-table">
+                <thead>
+                  <tr>
+                    <th>As Of</th>
+                    <th>Provider</th>
+                    <th>Benchmark</th>
+                    <th>Metric</th>
+                    <th>Value</th>
+                    <th>Vintage</th>
+                    <th>Age (Q)</th>
+                    <th>Source</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tableRows.map((row) => (
+                    <tr key={`benchmark-row-${row.id}`}>
+                      <td>{row.asOfDate ? row.asOfDate.toISOString().slice(0, 10) : row.asOfRaw}</td>
+                      <td>{row.provider}</td>
+                      <td>{row.benchmark}</td>
+                      <td>{getBenchmarkMetricMeta(row.metric).label}</td>
+                      <td>{formatBenchmarkMetricValue(row.value, row.metric)}</td>
+                      <td>{Number.isFinite(row.vintageYear) ? row.vintageYear : 'n/a'}</td>
+                      <td>{Number.isFinite(row.ageInQuarters) ? row.ageInQuarters : 'n/a'}</td>
+                      <td>{row.sourceFile || 'n/a'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="portfolio-inline-note">
+              Showing {tableRows.length.toLocaleString()} rows (cap {rowLimit}) from {sortedRows.length.toLocaleString()} filtered rows.
+            </p>
+          </>
+        )}
+      </div>
+    </section>
+  );
+};
+
+const BenchmarkHubPage = () => {
+  const { benchmarkData, loadError, isLoading } = useVcBenchmarkDataset();
+
+  return (
+    <>
+      <BenchmarkHeroSection benchmarkData={benchmarkData} isLoading={isLoading} loadError={loadError} />
+      <BenchmarkExplorerSection benchmarkData={benchmarkData} isLoading={isLoading} loadError={loadError} />
+      <BenchmarkTableSection benchmarkData={benchmarkData} isLoading={isLoading} loadError={loadError} />
+    </>
+  );
+};
 
 const PortfolioHeroStackTeaser = () => {
   const fundLife = 12;
@@ -9531,6 +10965,522 @@ const AsiaPlaybookSection = () => (
   </section>
 );
 
+const CustomTermsHeroSection = () => (
+  <section id="custom-terms-hero" className="hero-section liquidity-hero">
+    <div className="hero-kicker">Custom Infrastructure Terms</div>
+    <h1>EDIF IV Economic Terms Comparison</h1>
+    <p className="hero-summary">
+      This page compares a custom structure against a traditional PE structure using the same pacing and return path.
+      Pacing is fixed to a typical infrastructure curve so the model isolates what the terms themselves do to LP cash timing
+      and net outcomes.
+    </p>
+    <div className="liquidity-callout-grid">
+      <div className="liquidity-callout">
+        <h3>Custom structure modeled</h3>
+        <p>6% hurdle, no catch-up, 20% carry only above hurdle, 3% minimum LP net yield gate, fee on invested capital, and annual carry payment cap at 1.5% of NAV.</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Traditional comparison</h3>
+        <p>8% hurdle, full catch-up approximation, and standard fee basis (committed during investment period, then NAV).</p>
+      </div>
+      <div className="liquidity-callout">
+        <h3>Timing stress test</h3>
+        <p>Run shared gross-return scenarios and see how the term structures alone shift LP outcomes.</p>
+      </div>
+    </div>
+  </section>
+);
+
+const CustomTermsModelSection = () => {
+  const years = 12;
+  const [feeDiscountTier, setFeeDiscountTier] = useState('firstClose');
+  const [lateHurdleStress, setLateHurdleStress] = useState(false);
+  const customDefaults = useMemo(() => ({
+    commitmentM: 150,
+    baseReturn: 0.13,
+    feeRate: 0.0085,
+    feeMode: 'invested',
+    hurdleRate: 0.06,
+    carryRate: 0.20,
+    catchupMode: 'none',
+    hasCarryCap: true,
+    annualCarryCapRate: 0.015,
+    minNetYieldRate: 0.03,
+    escrowFraction: 2 / 3
+  }), []);
+
+  const traditionalDefaults = useMemo(() => ({
+    commitmentM: 150,
+    baseReturn: 0.13,
+    feeRate: 0.0100,
+    feeMode: 'committed',
+    stepDownEnabled: true,
+    stepDownFeeRate: 0.0080,
+    stepDownBasis: 'nav',
+    hurdleRate: 0.08,
+    carryRate: 0.20,
+    catchupMode: 'full',
+    hasCarryCap: false,
+    annualCarryCapRate: 0.015
+  }), []);
+
+  const [customFund, setCustomFund] = useState(customDefaults);
+  const [traditionalFund, setTraditionalFund] = useState(traditionalDefaults);
+  const customHeadlineFee = useMemo(() => getEdifFeeRate(customFund.commitmentM, 'headline'), [customFund.commitmentM]);
+  const customEffectiveFee = useMemo(() => getEdifFeeRate(customFund.commitmentM, feeDiscountTier), [customFund.commitmentM, feeDiscountTier]);
+  const traditionalHeadlineFee = useMemo(() => getEdifFeeRate(traditionalFund.commitmentM, 'headline'), [traditionalFund.commitmentM]);
+  const customSelectedFee = Number.isFinite(customFund.feeRate) ? customFund.feeRate : customEffectiveFee;
+  const traditionalSelectedFee = Number.isFinite(traditionalFund.feeRate) ? traditionalFund.feeRate : traditionalHeadlineFee;
+  const activeDistributionCurve = lateHurdleStress ? LATE_HURDLE_DISTRIBUTION_PCT : TYPICAL_INFRA_DISTRIBUTION_PCT;
+  const customReturnPath = useMemo(() => buildAnnualReturnPath(customFund.baseReturn, lateHurdleStress), [customFund.baseReturn, lateHurdleStress]);
+  const traditionalReturnPath = useMemo(() => buildAnnualReturnPath(traditionalFund.baseReturn, lateHurdleStress), [traditionalFund.baseReturn, lateHurdleStress]);
+
+  const updateFund = (setter, key, value) => {
+    setter((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const buildTerms = (fund) => ({
+    feeMode: fund.feeMode,
+    feeRate: fund.feeRate,
+    stepDownEnabled: Boolean(fund.stepDownEnabled),
+    stepDownFeeRate: fund.stepDownFeeRate ?? fund.feeRate,
+    stepDownBasis: fund.stepDownBasis || 'nav',
+    expenseRate: 0.002,
+    hurdleRate: fund.hurdleRate,
+    carryRate: fund.carryRate,
+    catchupMode: fund.catchupMode || 'full',
+    annualCarryCapRate: fund.hasCarryCap ? fund.annualCarryCapRate : Number.POSITIVE_INFINITY,
+    minNetYieldRate: fund.minNetYieldRate || 0,
+    escrowFraction: fund.escrowFraction || 0,
+    investmentPeriodYears: 5,
+    forceLiquidationAtEnd: false
+  });
+
+  const renderFundControls = ({ fund, setter, title, accent }) => (
+    <div className="custom-terms-fund-card">
+      <div className="custom-terms-fund-head">
+        <div className="custom-terms-fund-title" style={{ color: accent }}>{title}</div>
+      </div>
+
+      <div className="sliders-grid three-up">
+        <Slider value={fund.commitmentM} onChange={(v) => updateFund(setter, 'commitmentM', v)} min={25} max={500} step={5} label="Commitment Size ($M)" format={(v) => `$${v.toFixed(0)}M`} accent={accent} />
+        <Slider value={fund.baseReturn} onChange={(v) => updateFund(setter, 'baseReturn', v)} min={0.08} max={0.20} step={0.005} label="Annual Gross Return" format={(v) => formatPercent(v, 1)} accent={accent} />
+        <Slider value={Number.isFinite(fund.feeRate) ? fund.feeRate : (title === 'Custom Fund' ? customEffectiveFee : traditionalHeadlineFee)} onChange={(v) => updateFund(setter, 'feeRate', v)} min={0} max={0.03} step={0.0005} label="Fee Rate" format={(v) => formatPercent(v, 2)} />
+        <Slider value={fund.hurdleRate} onChange={(v) => updateFund(setter, 'hurdleRate', v)} min={0} max={0.12} step={0.0025} label="Hurdle Rate" format={(v) => formatPercent(v, 1)} />
+        <Slider value={fund.carryRate} onChange={(v) => updateFund(setter, 'carryRate', v)} min={0} max={0.30} step={0.005} label="Carry Rate" format={(v) => formatPercent(v, 1)} />
+        <Slider
+          value={fund.minNetYieldRate || 0}
+          onChange={(v) => updateFund(setter, 'minNetYieldRate', v)}
+          min={0}
+          max={0.08}
+          step={0.001}
+          label="Min LP Net Yield Gate"
+          format={(v) => formatPercent(v, 1)}
+          disabled={title !== 'Custom Fund'}
+        />
+        <Slider
+          value={fund.escrowFraction || 0}
+          onChange={(v) => updateFund(setter, 'escrowFraction', v)}
+          min={0}
+          max={1}
+          step={0.01}
+          label="Carry Escrow Fraction"
+          format={(v) => formatPercent(v, 0)}
+          disabled={title !== 'Custom Fund'}
+        />
+        {fund.hasCarryCap ? (
+          <Slider value={fund.annualCarryCapRate} onChange={(v) => updateFund(setter, 'annualCarryCapRate', v)} min={0} max={0.2} step={0.001} label="Annual Carry Cap Threshold (% NAV)" format={(v) => formatPercent(v, 1)} />
+        ) : null}
+      </div>
+
+      <div className="toggle-row">
+        <span className="toggle-label">Fee Basis Mode</span>
+        <ToggleSwitch
+          options={[
+            { label: 'Invested', value: 'invested' },
+            { label: 'Committed', value: 'committed' },
+            { label: 'NAV', value: 'nav' }
+          ]}
+          value={fund.feeMode}
+          onChange={(v) => updateFund(setter, 'feeMode', v)}
+          accent={accent}
+        />
+      </div>
+      <div className="metric-subtext">
+        Headline fee: {title === 'Custom Fund'
+          ? formatPercent(customHeadlineFee, 2)
+          : formatPercent(traditionalHeadlineFee, 2)}
+        {title === 'Custom Fund' ? ` | ${feeDiscountTier} tier ref: ${formatPercent(customEffectiveFee, 2)}` : ''} | Fee selected: {formatPercent(Number.isFinite(fund.feeRate) ? fund.feeRate : (title === 'Custom Fund' ? customEffectiveFee : traditionalHeadlineFee), 2)}
+      </div>
+      <div className="toggle-row">
+        <span className="toggle-label">Catch-up Mode</span>
+        <ToggleSwitch
+          options={[
+            { label: 'No Catch-up', value: 'none' },
+            { label: 'Full Catch-up', value: 'full' }
+          ]}
+          value={fund.catchupMode}
+          onChange={(v) => updateFund(setter, 'catchupMode', v)}
+          accent={accent}
+        />
+      </div>
+      <div className="toggle-row">
+        <span className="toggle-label">Annual Carry Cap</span>
+        <ToggleSwitch
+          options={[
+            { label: 'Yes', value: true },
+            { label: 'No', value: false }
+          ]}
+          value={fund.hasCarryCap}
+          onChange={(v) => updateFund(setter, 'hasCarryCap', v)}
+          accent={accent}
+        />
+      </div>
+      {title === 'Traditional Fund' ? (
+        <>
+          <div className="toggle-row">
+            <span className="toggle-label">Fee Step-Down (Post Investment Period)</span>
+            <ToggleSwitch
+              options={[
+                { label: 'Yes', value: true },
+                { label: 'No', value: false }
+              ]}
+              value={Boolean(fund.stepDownEnabled)}
+              onChange={(v) => updateFund(setter, 'stepDownEnabled', v)}
+              accent={accent}
+            />
+          </div>
+          {fund.stepDownEnabled ? (
+            <div className="sliders-grid two-up">
+              <Slider value={fund.stepDownFeeRate || 0} onChange={(v) => updateFund(setter, 'stepDownFeeRate', v)} min={0} max={0.03} step={0.0005} label="Post-Period Fee Rate" format={(v) => formatPercent(v, 2)} />
+              <div className="toggle-row" style={{ marginBottom: 0 }}>
+                <span className="toggle-label">Step-Down Fee Basis</span>
+                <ToggleSwitch
+                  options={[
+                    { label: 'NAV', value: 'nav' },
+                    { label: 'Invested', value: 'invested' },
+                    { label: 'Committed', value: 'committed' }
+                  ]}
+                  value={fund.stepDownBasis || 'nav'}
+                  onChange={(v) => updateFund(setter, 'stepDownBasis', v)}
+                  accent={accent}
+                />
+              </div>
+            </div>
+          ) : null}
+        </>
+      ) : null}
+    </div>
+  );
+
+  const customModel = useMemo(() => runTermStructureModel({
+    commitmentM: customFund.commitmentM,
+    contributionPctByYear: TYPICAL_INFRA_CONTRIBUTION_PCT,
+    distributionPctByYear: activeDistributionCurve,
+    baseReturn: customFund.baseReturn,
+    timingSkew: 0,
+    annualReturnPath: customReturnPath,
+    escrowYield: 0,
+    lpAltReinvestRate: 0.06,
+    terms: buildTerms({ ...customFund, feeRate: customSelectedFee })
+  }), [customFund, activeDistributionCurve, customReturnPath, customSelectedFee]);
+
+  const traditionalModel = useMemo(() => runTermStructureModel({
+    commitmentM: traditionalFund.commitmentM,
+    contributionPctByYear: TYPICAL_INFRA_CONTRIBUTION_PCT,
+    distributionPctByYear: activeDistributionCurve,
+    baseReturn: traditionalFund.baseReturn,
+    timingSkew: 0,
+    annualReturnPath: traditionalReturnPath,
+    escrowYield: 0,
+    lpAltReinvestRate: 0.06,
+    terms: buildTerms({ ...traditionalFund, feeRate: traditionalSelectedFee })
+  }), [traditionalFund, activeDistributionCurve, traditionalReturnPath, traditionalSelectedFee]);
+
+  const scenarioCurve = useMemo(() => {
+    const returns = [];
+    const customNetMultiple = [];
+    const traditionalNetMultiple = [];
+    for (let r = 0.08; r <= 0.1801; r += 0.01) {
+      const annualReturn = Number(r.toFixed(3));
+      const custom = runTermStructureModel({
+        commitmentM: customFund.commitmentM,
+        contributionPctByYear: TYPICAL_INFRA_CONTRIBUTION_PCT,
+        distributionPctByYear: activeDistributionCurve,
+        baseReturn: annualReturn,
+        timingSkew: 0,
+        annualReturnPath: buildAnnualReturnPath(annualReturn, lateHurdleStress),
+        escrowYield: 0,
+        lpAltReinvestRate: 0.06,
+        terms: buildTerms({ ...customFund, feeRate: customSelectedFee })
+      });
+      const traditional = runTermStructureModel({
+        commitmentM: traditionalFund.commitmentM,
+        contributionPctByYear: TYPICAL_INFRA_CONTRIBUTION_PCT,
+        distributionPctByYear: activeDistributionCurve,
+        baseReturn: annualReturn,
+        timingSkew: 0,
+        annualReturnPath: buildAnnualReturnPath(annualReturn, lateHurdleStress),
+        escrowYield: 0,
+        lpAltReinvestRate: 0.06,
+        terms: buildTerms({ ...traditionalFund, feeRate: traditionalSelectedFee })
+      });
+      returns.push(`${(annualReturn * 100).toFixed(0)}%`);
+      customNetMultiple.push(custom.totals.netMultiple);
+      traditionalNetMultiple.push(traditional.totals.netMultiple);
+    }
+    return { returns, customNetMultiple, traditionalNetMultiple };
+  }, [customFund, traditionalFund, activeDistributionCurve, lateHurdleStress, customSelectedFee, traditionalSelectedFee]);
+
+  const commitmentSensitivity = useMemo(() => {
+    const commits = [25, 50, 100, 150, 250, 350, 500];
+    const labels = commits.map((c) => `$${c}M`);
+    const customTiered = commits.map((c) => {
+      const feeRate = getEdifFeeRate(c, feeDiscountTier);
+      const model = runTermStructureModel({
+        commitmentM: c,
+        contributionPctByYear: TYPICAL_INFRA_CONTRIBUTION_PCT,
+        distributionPctByYear: activeDistributionCurve,
+        baseReturn: customFund.baseReturn,
+        timingSkew: 0,
+        annualReturnPath: buildAnnualReturnPath(customFund.baseReturn, lateHurdleStress),
+        escrowYield: 0,
+        lpAltReinvestRate: 0.06,
+        terms: buildTerms({ ...customFund, feeRate })
+      });
+      return model.totals.netMultiple;
+    });
+    const traditionalFlat = commits.map((c) => {
+      const model = runTermStructureModel({
+        commitmentM: c,
+        contributionPctByYear: TYPICAL_INFRA_CONTRIBUTION_PCT,
+        distributionPctByYear: activeDistributionCurve,
+        baseReturn: traditionalFund.baseReturn,
+        timingSkew: 0,
+        annualReturnPath: buildAnnualReturnPath(traditionalFund.baseReturn, lateHurdleStress),
+        escrowYield: 0,
+        lpAltReinvestRate: 0.06,
+        terms: buildTerms({ ...traditionalFund, feeRate: getEdifFeeRate(c, 'headline') })
+      });
+      return model.totals.netMultiple;
+    });
+    return { labels, customTiered, traditionalFlat };
+  }, [customFund, traditionalFund, activeDistributionCurve, feeDiscountTier, lateHurdleStress]);
+
+  const yearlyLpNetCustomM = customModel.rows.map((row) => (row.lpDistribution - row.called - row.fee - row.expense) / 1e6);
+  const yearlyLpNetTraditionalM = traditionalModel.rows.map((row) => (row.lpDistribution - row.called - row.fee - row.expense) / 1e6);
+  const yearLabels = Array.from({ length: years }, (_, i) => `Y${i + 1}`);
+
+  return (
+    <section id="custom-terms-model" className="content-section">
+      <h2>Interactive Term Sheet Comparison</h2>
+      <p>
+        Both structures use the exact same infrastructure pacing, return path, and expense assumption. The only differences
+        are terms, so you can isolate what those terms do to LP return and cash timing.
+      </p>
+
+      <div className="interactive-block custom-terms-block">
+        <div className="block-header">
+          <span className="block-title">Fund-by-Fund Controls</span>
+          <span className="block-subtitle">Pacing and timing are fixed; drag a small set of high-impact terms</span>
+        </div>
+        <div className="block-actions">
+          <ResetButton
+            label="Reset Inputs"
+            onClick={() => {
+              setFeeDiscountTier('firstClose');
+              setCustomFund(customDefaults);
+              setTraditionalFund(traditionalDefaults);
+            }}
+          />
+        </div>
+        <div className="custom-terms-fund-grid">
+          {renderFundControls({ fund: customFund, setter: setCustomFund, title: 'Custom Fund', accent: '#B5473A' })}
+          {renderFundControls({ fund: traditionalFund, setter: setTraditionalFund, title: 'Traditional Fund', accent: '#1B2A4A' })}
+        </div>
+        <div className="toggle-row">
+          <span className="toggle-label">Late Hurdle Stress</span>
+          <ToggleSwitch
+            options={[
+              { label: 'Off', value: false },
+              { label: 'On', value: true }
+            ]}
+            value={lateHurdleStress}
+            onChange={setLateHurdleStress}
+            accent="#C9A84C"
+          />
+        </div>
+        <p className="portfolio-inline-note">
+          <strong>What this toggle does:</strong> it back-ends realization by shifting annual distributions later
+          in fund life and uses a back-loaded annual return path. That delays hurdle attainment and is where
+          `no catch-up` can materially reduce or delay GP carry versus a traditional catch-up structure.
+        </p>
+
+        <div className="metrics-row">
+          <MetricCard label="Custom LP Net TVPI" value={`${customModel.totals.netMultiple.toFixed(2)}x`} subtext={customModel.totals.lpIrr !== null ? `${formatPercent(customModel.totals.lpIrr, 1)} IRR (incl. terminal NAV)` : 'IRR n/a'} accent="#B5473A" />
+          <MetricCard label="Traditional LP Net TVPI" value={`${traditionalModel.totals.netMultiple.toFixed(2)}x`} subtext={traditionalModel.totals.lpIrr !== null ? `${formatPercent(traditionalModel.totals.lpIrr, 1)} IRR (incl. terminal NAV)` : 'IRR n/a'} accent="#1B2A4A" />
+          <MetricCard label="Custom Escrow Deposits" value={formatCurrency(customModel.totals.totalCarryEscrowed, 0)} subtext="Carry routed into escrow account" accent="#9A9690" />
+          <MetricCard label="Escrow Final Allocation" value={`${formatCurrency(customModel.totals.escrowPayoutToGPFinal, 0)} GP / ${formatCurrency(customModel.totals.escrowReturnedToLPFinal, 0)} LP`} subtext="At final true-up" accent="#2D6B4F" />
+        </div>
+
+        <div className="underinvesting-charts">
+          <div className="tradeoff-curve underinvesting-curve">
+            <div className="tradeoff-curve-title">Net TVPI Across Return Scenarios</div>
+            <ComparisonChart
+              seriesA={scenarioCurve.customNetMultiple}
+              seriesB={scenarioCurve.traditionalNetMultiple}
+              labelA="Custom"
+              labelB="Traditional"
+              xLabels={scenarioCurve.returns}
+              xTickStep={2}
+              yFormatter={(v) => `${v.toFixed(2)}x`}
+              colorA="#B5473A"
+              colorB="#1B2A4A"
+              height={220}
+              showLegend={false}
+            />
+          </div>
+
+          <div className="tradeoff-curve underinvesting-curve">
+            <div className="tradeoff-curve-title">Annual LP Net Cash Flow (After Fees/Carry)</div>
+            <ComparisonChart
+              seriesA={yearlyLpNetCustomM}
+              seriesB={yearlyLpNetTraditionalM}
+              labelA="Custom LP Net CF"
+              labelB="Traditional LP Net CF"
+              xLabels={yearLabels}
+              xTickStep={1}
+              yFormatter={(v) => formatCurrency(v * 1e6, 0)}
+              colorA="#B5473A"
+              colorB="#1B2A4A"
+              height={220}
+              showLegend={false}
+            />
+          </div>
+        </div>
+
+        <div className="tradeoff-curve underinvesting-curve">
+          <div className="tradeoff-curve-title">Commitment Size Fee-Discount Sensitivity (Custom vs Traditional)</div>
+          <div className="toggle-row">
+            <span className="toggle-label">Custom Discount Tier</span>
+            <ToggleSwitch
+              options={[
+                { label: 'First Close', value: 'firstClose' },
+                { label: 'Headline', value: 'headline' },
+                { label: 'Existing', value: 'existing' }
+              ]}
+              value={feeDiscountTier}
+              onChange={setFeeDiscountTier}
+              accent="#B5473A"
+            />
+          </div>
+          <ComparisonChart
+            seriesA={commitmentSensitivity.customTiered}
+            seriesB={commitmentSensitivity.traditionalFlat}
+            labelA="Custom (Tiered Fee)"
+            labelB="Traditional (Current Fee)"
+            xLabels={commitmentSensitivity.labels}
+            xTickStep={1}
+            yFormatter={(v) => `${v.toFixed(2)}x`}
+            colorA="#B5473A"
+            colorB="#1B2A4A"
+            height={220}
+            showLegend={false}
+          />
+        </div>
+
+        <div className="assumptions-table-container schedule-table-container">
+          <table className="assumptions-table schedule-table custom-terms-table">
+            <thead>
+              <tr>
+                <th>Year</th>
+                <th>Custom NAV Start</th>
+                <th>Custom Carry Cap</th>
+                <th>Custom Escrow In</th>
+                <th>Custom Escrow Out (GP)</th>
+                <th>Custom Escrow Out (LP)</th>
+                <th>Custom Escrow End</th>
+                <th>Custom LP Net CF</th>
+                <th>Traditional NAV Start</th>
+                <th>Traditional Carry Cap</th>
+                <th>Traditional LP Net CF</th>
+              </tr>
+            </thead>
+            <tbody>
+              {customModel.rows.map((customRow, idx) => {
+                const tradRow = traditionalModel.rows[idx];
+                const customLpNet = customRow.lpDistribution - customRow.called - customRow.fee - customRow.expense;
+                const tradLpNet = tradRow.lpDistribution - tradRow.called - tradRow.fee - tradRow.expense;
+                return (
+                  <tr key={`custom-terms-row-${idx}`}>
+                    <td>{customRow.year}</td>
+                    <td>{formatCurrency(customRow.navStart, 0)}</td>
+                    <td>{customRow.annualCarryCapAmount === null ? 'Uncapped' : formatCurrency(customRow.annualCarryCapAmount, 0)}</td>
+                    <td>{formatCurrency(customRow.escrowDeposit, 0)}</td>
+                    <td>{formatCurrency(customRow.escrowReleaseToGP, 0)}</td>
+                    <td>{formatCurrency(customRow.escrowReturnToLP, 0)}</td>
+                    <td>{formatCurrency(customRow.escrowBalanceEnd, 0)}</td>
+                    <td>{formatCurrency(customLpNet, 0)}</td>
+                    <td>{formatCurrency(tradRow.navStart, 0)}</td>
+                    <td>{tradRow.annualCarryCapAmount === null ? 'Uncapped' : formatCurrency(tradRow.annualCarryCapAmount, 0)}</td>
+                    <td>{formatCurrency(tradLpNet, 0)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        <p className="portfolio-inline-note">
+          <strong>Escrow relevance for LPs:</strong> escrow mostly changes GP payment timing and clawback protection.
+          LP economics change primarily if escrow is released back to LP at final true-up or if foregone LP reinvestment is material.
+        </p>
+        <p className="portfolio-inline-note">
+          <strong>Modeling simplification:</strong> both funds use the same fixed infra pacing and a common expense assumption of 20 bps,
+          so differences shown are driven by fee basis, hurdle/carry terms, annual carry cap mechanics, and escrow treatment.
+        </p>
+        <div className="assumptions-table-container">
+          <div className="roadmap-title">EDIF Fee Discount Reference (Management Fee on Invested Capital)</div>
+          <table className="assumptions-table custom-terms-table">
+            <thead>
+              <tr>
+                <th>Commitment Tier</th>
+                <th>Headline Fee</th>
+                <th>With First Close</th>
+                <th>FC + Existing Investor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {EDIF_FEE_DISCOUNT_SCHEDULE.map((row, idx) => {
+                const tierLabel = row.max === Number.POSITIVE_INFINITY
+                  ? `>= $${row.min}M`
+                  : `$${row.min}M - $${row.max}M`;
+                const customInTier = customFund.commitmentM >= row.min && customFund.commitmentM < row.max;
+                const traditionalInTier = traditionalFund.commitmentM >= row.min && traditionalFund.commitmentM < row.max;
+                return (
+                  <tr key={`fee-tier-${idx}`} className={customInTier || traditionalInTier ? 'post-investment' : ''}>
+                    <td className="basis-cell">
+                      <span className="basis-value">{tierLabel}{customInTier ? ' (Custom)' : ''}{traditionalInTier ? ' (Traditional)' : ''}</span>
+                    </td>
+                    <td>{formatPercent(row.headline, 2)}</td>
+                    <td>{formatPercent(row.firstClose, 2)}</td>
+                    <td>{formatPercent(row.existing, 2)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="table-note">
+            Custom headline: {formatPercent(customHeadlineFee, 2)} at ${customFund.commitmentM.toFixed(0)}M.
+            Traditional headline: {formatPercent(traditionalHeadlineFee, 2)} at ${traditionalFund.commitmentM.toFixed(0)}M.
+            Traditional always uses headline; custom uses selected discount tier.
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+};
+
 // ============================================================================
 // MAIN APP
 // ============================================================================
@@ -9542,6 +11492,12 @@ export default function App() {
   const [activePage, setActivePage] = useState(() => {
     if (typeof window === 'undefined') return 'economics';
     const hash = window.location.hash.replace('#', '').toLowerCase();
+    if (hash.startsWith('benchmark') || BENCHMARK_SECTION_LINKS.some((section) => section.id === hash)) {
+      return 'benchmarks';
+    }
+    if (hash.startsWith('custom-terms') || CUSTOM_TERMS_SECTION_LINKS.some((section) => section.id === hash)) {
+      return 'custom-terms';
+    }
     if (hash.startsWith('portfolio') || PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash)) {
       return 'portfolio';
     }
@@ -9557,7 +11513,11 @@ export default function App() {
   useEffect(() => {
     const syncPageFromHash = () => {
       const hash = window.location.hash.replace('#', '').toLowerCase();
-      if (PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('portfolio')) {
+      if (BENCHMARK_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('benchmark')) {
+        setActivePage('benchmarks');
+      } else if (CUSTOM_TERMS_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('custom-terms')) {
+        setActivePage('custom-terms');
+      } else if (PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('portfolio')) {
         setActivePage('portfolio');
       } else if (ASIA_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('asia')) {
         setActivePage('asia');
@@ -9584,6 +11544,10 @@ export default function App() {
         ? 'asia'
       : pageKey === 'environment'
         ? 'environment'
+      : pageKey === 'custom-terms'
+        ? 'custom-terms'
+      : pageKey === 'benchmarks'
+        ? 'benchmarks'
         : 'economics';
     setActivePage(targetPage);
     const firstSectionId = targetPage === 'liquidity'
@@ -9594,6 +11558,10 @@ export default function App() {
         ? ASIA_SECTION_LINKS[0].id
       : targetPage === 'environment'
         ? ENVIRONMENT_SECTION_LINKS[0].id
+      : targetPage === 'custom-terms'
+        ? CUSTOM_TERMS_SECTION_LINKS[0].id
+      : targetPage === 'benchmarks'
+        ? BENCHMARK_SECTION_LINKS[0].id
         : SECTION_LINKS[0].id;
     window.location.hash = firstSectionId;
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -9607,6 +11575,10 @@ export default function App() {
       ? ASIA_SECTION_LINKS
     : activePage === 'environment'
       ? ENVIRONMENT_SECTION_LINKS
+    : activePage === 'custom-terms'
+      ? CUSTOM_TERMS_SECTION_LINKS
+    : activePage === 'benchmarks'
+      ? BENCHMARK_SECTION_LINKS
       : SECTION_LINKS;
 
   return (
@@ -10690,6 +12662,139 @@ export default function App() {
           line-height: 1.55;
         }
 
+        .custom-terms-block .metrics-row {
+          margin-top: 12px;
+        }
+
+        .custom-terms-fund-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 14px;
+          margin-bottom: 14px;
+        }
+
+        .custom-terms-fund-card {
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          padding: 12px;
+          background: #FCFDFF;
+        }
+
+        .custom-terms-fund-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 10px;
+          margin-bottom: 8px;
+          flex-wrap: wrap;
+        }
+
+        .custom-terms-fund-title {
+          font-size: 13px;
+          font-weight: 700;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+        }
+
+        .custom-terms-fund-note {
+          font-size: 12px;
+          color: #5B657A;
+          margin-bottom: 8px;
+        }
+
+        .custom-terms-fund-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
+        .custom-terms-pacing-head {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 10px;
+          margin: 16px 0 10px;
+          flex-wrap: wrap;
+        }
+
+        .custom-terms-pacing-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .mini-action {
+          border: 1px solid #CFD7E5;
+          border-radius: 999px;
+          padding: 7px 10px;
+          background: #FFFFFF;
+          color: #1B2A4A;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.3px;
+          text-transform: uppercase;
+          cursor: pointer;
+        }
+
+        .mini-action:hover {
+          border-color: #1B2A4A;
+          background: #F5F7FB;
+        }
+
+        .custom-terms-pacing-grid {
+          display: grid;
+          grid-template-columns: repeat(4, minmax(0, 1fr));
+          gap: 10px;
+          margin: 10px 0 16px;
+        }
+
+        .custom-terms-year-card {
+          border: 1px solid #E1E8F3;
+          border-radius: 8px;
+          padding: 10px;
+          background: #FBFCFF;
+        }
+
+        .custom-terms-year-title {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          color: #1B2A4A;
+          margin-bottom: 8px;
+        }
+
+        .custom-terms-year-label {
+          display: block;
+          font-size: 10px;
+          letter-spacing: 0.5px;
+          text-transform: uppercase;
+          color: #6B7488;
+          margin: 0 0 4px;
+        }
+
+        .custom-terms-year-slider {
+          width: 100%;
+          accent-color: #1B2A4A;
+        }
+
+        .custom-terms-year-slider-gold {
+          accent-color: #C9A84C;
+        }
+
+        .custom-terms-year-value {
+          font-family: 'SF Mono', 'Monaco', monospace;
+          font-size: 11px;
+          color: #4A4641;
+          margin: 4px 0 8px;
+        }
+
+        .custom-terms-table th,
+        .custom-terms-table td {
+          font-size: 10px;
+          white-space: nowrap;
+        }
+
         .environment-explorer-block {
           padding-top: 14px;
         }
@@ -10841,6 +12946,158 @@ export default function App() {
           font-size: 14px;
           line-height: 1.6;
           color: #4F5B72;
+        }
+
+        .benchmark-hero {
+          background:
+            radial-gradient(circle at 10% 8%, rgba(27, 42, 74, 0.2), transparent 42%),
+            radial-gradient(circle at 82% 14%, rgba(74, 123, 167, 0.17), transparent 36%),
+            linear-gradient(180deg, #F7FAFE 0%, #EDF4FC 66%, #E8F0FA 100%);
+        }
+
+        .benchmark-hero-metrics .metric-card {
+          min-height: 98px;
+        }
+
+        .benchmark-control-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 10px;
+          margin-bottom: 14px;
+          align-items: end;
+        }
+
+        .benchmark-vintage-picker {
+          border: 1px solid #DCE3EE;
+          border-radius: 9px;
+          background: #FBFCFF;
+          padding: 8px;
+        }
+
+        .benchmark-vintage-select {
+          min-height: 150px;
+          font-size: 12px;
+          padding: 6px;
+        }
+
+        .benchmark-vintage-picker-actions {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 6px;
+          margin-top: 8px;
+        }
+
+        .benchmark-range-grid {
+          margin-top: 8px;
+        }
+
+        .benchmark-date-range {
+          margin: 2px 0 12px;
+          border: 1px solid #DCE3EE;
+          border-radius: 9px;
+          background: #FBFCFF;
+          padding: 10px;
+        }
+
+        .benchmark-date-controls {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin-top: 6px;
+        }
+
+        .benchmark-date-controls span {
+          font-size: 12px;
+          color: #6B7488;
+        }
+
+        .benchmark-chart-shell {
+          margin: 6px 0 8px;
+        }
+
+        .benchmark-chart-wrap {
+          position: relative;
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          background: #FFFFFF;
+          overflow: hidden;
+        }
+
+        .benchmark-series-svg {
+          width: 100%;
+          height: 100%;
+          display: block;
+        }
+
+        .benchmark-hover-readout {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-height: 34px;
+          border: 1px solid #DCE3EE;
+          border-radius: 9px;
+          background: #FBFCFF;
+          padding: 7px 10px;
+          margin-top: 6px;
+          color: #44526B;
+          flex-wrap: wrap;
+        }
+
+        .benchmark-hover-readout-title {
+          font-size: 12px;
+          font-weight: 700;
+        }
+
+        .benchmark-hover-readout-axis {
+          font-size: 12px;
+          color: #5A667D;
+        }
+
+        .benchmark-hover-readout-value {
+          font-family: 'SF Mono', 'Monaco', monospace;
+          font-size: 15px;
+          color: #1B2A4A;
+        }
+
+        .benchmark-hover-readout-sep {
+          font-size: 11px;
+          color: #9AA4B8;
+        }
+
+        .benchmark-hover-readout-empty {
+          font-size: 12px;
+          color: #6B7488;
+        }
+
+        .benchmark-vintage-legend {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          margin: 4px 0 2px;
+        }
+
+        .benchmark-vintage-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          border: 1px solid #D1DAE8;
+          border-radius: 999px;
+          padding: 4px 8px;
+          font-size: 11px;
+          color: #34445E;
+          background: #FFFFFF;
+        }
+
+        .benchmark-vintage-dot {
+          width: 8px;
+          height: 8px;
+          border-radius: 999px;
+          display: inline-block;
+        }
+
+        .benchmark-summary-metrics {
+          margin-top: 10px;
         }
 
         .portfolio-hero {
@@ -12225,6 +14482,36 @@ export default function App() {
           min-width: 640px;
         }
 
+        .benchmark-table-wrap {
+          max-height: 560px;
+          overflow: auto;
+        }
+
+        .benchmark-data-table {
+          min-width: 980px;
+        }
+
+        .benchmark-table-toolbar {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+          gap: 10px;
+          margin-bottom: 12px;
+          align-items: end;
+        }
+
+        .benchmark-search-input {
+          width: 100%;
+        }
+
+        .benchmark-export-group {
+          justify-content: flex-end;
+        }
+
+        .benchmark-export-btn {
+          width: 100%;
+          white-space: nowrap;
+        }
+
         .environment-table th,
         .environment-table td {
           text-align: left;
@@ -12397,6 +14684,14 @@ export default function App() {
 
         .slider-track-container {
           position: relative;
+        }
+
+        .slider-container.disabled {
+          opacity: 0.55;
+        }
+
+        .slider-container.disabled .slider-input {
+          cursor: not-allowed;
         }
 
         .slider-input {
@@ -13200,6 +15495,17 @@ export default function App() {
           color: #9A9690;
         }
 
+        .underinvesting-charts {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 18px;
+          align-items: start;
+        }
+
+        .underinvesting-curve {
+          margin: 0;
+        }
+
         .underinvesting-legend {
           display: flex;
           flex-wrap: wrap;
@@ -13666,6 +15972,10 @@ export default function App() {
             grid-template-columns: 1fr;
           }
 
+          .underinvesting-charts {
+            grid-template-columns: 1fr;
+          }
+
           .timing-layout {
             grid-template-columns: 1fr;
           }
@@ -13751,6 +16061,14 @@ export default function App() {
             grid-template-columns: repeat(2, minmax(140px, 1fr));
           }
 
+          .custom-terms-fund-grid {
+            grid-template-columns: 1fr;
+          }
+
+          .custom-terms-pacing-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+
           .liquidity-callout-grid {
             grid-template-columns: 1fr;
           }
@@ -13771,6 +16089,10 @@ export default function App() {
 
           .sliders-grid.two-up,
           .sliders-grid.three-up {
+            grid-template-columns: 1fr;
+          }
+
+          .custom-terms-pacing-grid {
             grid-template-columns: 1fr;
           }
 
@@ -13995,6 +16317,13 @@ export default function App() {
               <AsiaRedFlagsSection />
               <AsiaPlaybookSection />
             </>
+          ) : activePage === 'custom-terms' ? (
+            <>
+              <CustomTermsHeroSection />
+              <CustomTermsModelSection />
+            </>
+          ) : activePage === 'benchmarks' ? (
+            <BenchmarkHubPage />
           ) : (
             <>
               <EnvironmentHeroSection />
