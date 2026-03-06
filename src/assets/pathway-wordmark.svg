@@ -1,0 +1,8 @@
+<svg width="240" height="40" viewBox="0 0 240 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="240" height="40" rx="8" fill="#0F1B33"/>
+  <rect x="12" y="10" width="6" height="20" fill="#C9A84C"/>
+  <rect x="22" y="14" width="6" height="16" fill="#C9A84C"/>
+  <rect x="32" y="18" width="6" height="12" fill="#C9A84C"/>
+  <text x="50" y="18" fill="#FFFFFF" font-family="Helvetica, Arial, sans-serif" font-size="9" letter-spacing="1.4">PATHWAY CAPITAL</text>
+  <text x="50" y="29" fill="#D7DEE9" font-family="Helvetica, Arial, sans-serif" font-size="7" letter-spacing="1">PRIVATE MARKETS ECONOMICS</text>
+</svg>

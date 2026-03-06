@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import vcWorldBenchmarksCsvUrl from '../VC World Benchmarks 1993-2025 Consolidated.csv?url';
+import actualGrossNetCsvUrl from '../gross-net-spreads-actual.csv?url';
+import pathwayWordmarkUrl from './assets/pathway-wordmark.svg';
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -275,8 +277,8 @@ const runTermStructureModel = ({
   };
 };
 
-// Shared source-of-truth mapping for gross to net TVPI.
-// Anchored at 2.5x gross -> 2.0x net, with widening drag at higher outcomes.
+// Baseline reference values used across examples.
+// Net outputs shown in the public economics guide are derived from schedule math.
 const BASELINE_GROSS_TVPI = 2.5;
 const BASELINE_NET_TVPI = 2.0;
 const MIN_NET_TVPI = 1.0;
@@ -458,6 +460,24 @@ const BENCHMARK_SECTION_LINKS = [
 
 const ENVIRONMENT_REPORT_FILE = 'pathway-4q25-private-market-environment-report.pdf';
 const ENVIRONMENT_REPORT_PAGE_COUNT = 48;
+const CONTACT_EMAIL = 'newinvestors@pathwaycapital.com';
+const SITE_AS_OF_DATE = 'March 6, 2026';
+const DISCLAIMER_STORAGE_KEY = 'pathway-pe-economics-disclaimer-v1';
+const ACTUAL_SPREAD_DISPLAY_COUNT = 804;
+const ACTUAL_SPREAD_VINTAGE_RANGE_LABEL = '1993 to 2021';
+const ACTUAL_SPREAD_X_DOMAIN = [0.5, 4.25];
+const ACTUAL_SPREAD_Y_DOMAIN = [0.25, 3.25];
+const ACTUAL_SPREAD_TARGET = { gross: 2.5, net: 2.0 };
+const ACTUAL_SPREAD_FOCUS_WINDOW = {
+  grossMin: 2.3,
+  grossMax: 2.7,
+  netMin: 1.8,
+  netMax: 2.2
+};
+
+const buildMailtoHref = (subject) => `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}`;
+
+const WALKTHROUGH_MAILTO = buildMailtoHref('Pathway Private Markets Economics Walkthrough');
 
 const SideNav = ({ sections }) => {
   const [activeId, setActiveId] = useState(sections[0]?.id || '');
@@ -487,7 +507,7 @@ const SideNav = ({ sections }) => {
 
   return (
     <aside className="side-nav">
-      <div className="side-nav-title">Contents</div>
+      <div className="side-nav-title">Guide Sections</div>
       <nav className="side-nav-links">
         {sections.map((section, index) => (
           <a
@@ -822,7 +842,10 @@ const ComparisonChart = ({
   marker = null,
   showLegend = true,
   inlineLabels = [],
-  continuationArrowA = null
+  continuationArrowA = null,
+  xAxisLabel = null,
+  xAxisStartLabel = null,
+  xAxisEndLabel = null
 }) => {
   const canvasRef = useRef(null);
 
@@ -850,7 +873,8 @@ const ComparisonChart = ({
       const safeSeriesB = seriesB.slice(0, length);
       const denominator = Math.max(1, length - 1);
 
-      const padding = { top: 40, bottom: 50, left: 60, right: 20 };
+      const needsXAxisTitle = Boolean(xAxisLabel || xAxisStartLabel || xAxisEndLabel);
+      const padding = { top: 40, bottom: needsXAxisTitle ? 72 : 50, left: 60, right: 20 };
       const chartWidth = width - padding.left - padding.right;
       const chartHeight = h - padding.top - padding.bottom;
 
@@ -1131,6 +1155,27 @@ const ComparisonChart = ({
         const label = xLabels && xLabels[i] ? xLabels[i] : `Yr ${i + 1}`;
         ctx.fillText(label, x, h - padding.bottom + 20);
       }
+
+      if (xAxisLabel) {
+        ctx.fillStyle = '#5B657A';
+        ctx.font = '600 10px Helvetica Neue';
+        ctx.textAlign = 'center';
+        ctx.fillText(xAxisLabel, padding.left + chartWidth / 2, h - 10);
+      }
+
+      if (xAxisStartLabel) {
+        ctx.fillStyle = '#7A869D';
+        ctx.font = '10px system-ui';
+        ctx.textAlign = 'left';
+        ctx.fillText(xAxisStartLabel, padding.left, h - 28);
+      }
+
+      if (xAxisEndLabel) {
+        ctx.fillStyle = '#7A869D';
+        ctx.font = '10px system-ui';
+        ctx.textAlign = 'right';
+        ctx.fillText(xAxisEndLabel, width - padding.right, h - 28);
+      }
     };
 
     const shouldAnimate = animateShiftArrows && shiftArrows.length > 0;
@@ -1164,7 +1209,10 @@ const ComparisonChart = ({
     marker,
     showLegend,
     inlineLabels,
-    continuationArrowA
+    continuationArrowA,
+    xAxisLabel,
+    xAxisStartLabel,
+    xAxisEndLabel
   ]);
 
   return <canvas ref={canvasRef} className="comparison-canvas" style={{ width: '100%', height }} />;
@@ -2027,6 +2075,76 @@ const parseCsvRows = (text) => {
   return rows;
 };
 
+const parseActualGrossNetCsv = (text) => {
+  const rows = parseCsvRows(text);
+  if (rows.length < 2) return null;
+  const headers = rows[0].map((h) => String(h || '').trim().toLowerCase());
+  const idxGross = headers.findIndex((h) => h === 'gross multiple' || h === 'gross_multiple');
+  const idxNet = headers.findIndex((h) => h === 'tvpi' || h === 'net tvpi' || h === 'net_multiple');
+  if (idxGross === -1 || idxNet === -1) return null;
+
+  const points = rows
+    .slice(1)
+    .map((row, idx) => {
+      const gross = Number(String(row[idxGross] || '').trim());
+      const net = Number(String(row[idxNet] || '').trim());
+      if (!Number.isFinite(gross) || !Number.isFinite(net)) return null;
+      return { id: idx + 1, gross, net };
+    })
+    .filter(Boolean);
+
+  return points.length ? { points } : null;
+};
+
+const useActualGrossNetDataset = () => {
+  const [actualSpreadData, setActualSpreadData] = useState(null);
+  const [loadError, setLoadError] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    const load = async () => {
+      setIsLoading(true);
+      const base = (import.meta && import.meta.env && import.meta.env.BASE_URL) || '/';
+      const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+      const candidates = [
+        actualGrossNetCsvUrl,
+        `${normalizedBase}gross-net-spreads-actual.csv`,
+        '/gross-net-spreads-actual.csv'
+      ];
+      for (const path of candidates) {
+        try {
+          const res = await fetch(path, { cache: 'no-store' });
+          if (!res.ok) continue;
+          const text = await res.text();
+          const parsed = parseActualGrossNetCsv(text);
+          if (parsed && parsed.points.length) {
+            if (active) {
+              setActualSpreadData(parsed);
+              setLoadError('');
+              setIsLoading(false);
+            }
+            return;
+          }
+        } catch (_) {
+          // Try next candidate path.
+        }
+      }
+      if (active) {
+        setActualSpreadData(null);
+        setLoadError('Actual gross-to-net dataset not found. Expected gross-net-spreads-actual.csv at site root.');
+        setIsLoading(false);
+      }
+    };
+    load();
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  return { actualSpreadData, loadError, isLoading };
+};
+
 const parseUsDateWithPivot = (raw, pivotYear = 50) => {
   const value = String(raw || '').trim();
   if (!value) return null;
@@ -2115,6 +2233,28 @@ const aggregateValues = (values, method) => {
   if (method === 'mean') return sorted.reduce((sum, v) => sum + v, 0) / sorted.length;
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
+};
+
+const buildGrossSpreadBuckets = (points, {
+  start = 0.75,
+  end = 4.25,
+  width = 0.5,
+  minCount = 8
+} = {}) => {
+  const buckets = [];
+  for (let bucketStart = start; bucketStart < end; bucketStart += width) {
+    const bucketPoints = points.filter((point) => point.gross >= bucketStart && point.gross < bucketStart + width);
+    if (bucketPoints.length < minCount) continue;
+    buckets.push({
+      grossMid: bucketStart + width / 2,
+      count: bucketPoints.length,
+      medianNet: aggregateValues(bucketPoints.map((point) => point.net), 'median'),
+      meanNet: aggregateValues(bucketPoints.map((point) => point.net), 'mean'),
+      medianSpread: aggregateValues(bucketPoints.map((point) => point.gross - point.net), 'median'),
+      meanSpread: aggregateValues(bucketPoints.map((point) => point.gross - point.net), 'mean')
+    });
+  }
+  return buckets;
 };
 
 const parseVcBenchmarkCsv = (text) => {
@@ -2988,131 +3128,349 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
 // SECTION COMPONENTS
 // ============================================================================
 
-const Header = ({ compactControls, onToggleCompactControls, activePage, onNavigatePage }) => {
-  const [menuOpen, setMenuOpen] = useState(false);
+const ActualGrossNetScatter = ({ points, height = 420 }) => {
+  const containerRef = useRef(null);
+  const [width, setWidth] = useState(920);
+  const [hoverPoint, setHoverPoint] = useState(null);
+  const [revealProgress, setRevealProgress] = useState(0);
+  const safeHeight = Math.max(320, height);
 
-  const handleToggleCompact = () => {
-    onToggleCompactControls();
-    setMenuOpen(false);
-  };
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+    const update = () => setWidth(Math.max(320, el.clientWidth || 920));
+    update();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    if (observer) observer.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      if (observer) observer.disconnect();
+    };
+  }, []);
 
-  const handleNavigate = (pageKey) => {
-    onNavigatePage(pageKey);
-    setMenuOpen(false);
-  };
+  useEffect(() => {
+    let rafId = 0;
+    const start = performance.now();
+    const duration = 1600;
+    const animate = (timestamp) => {
+      const elapsed = Math.max(0, timestamp - start);
+      const progress = clamp(elapsed / duration, 0, 1);
+      setRevealProgress(1 - Math.pow(1 - progress, 3));
+      if (progress < 1) rafId = window.requestAnimationFrame(animate);
+    };
+    rafId = window.requestAnimationFrame(animate);
+    return () => window.cancelAnimationFrame(rafId);
+  }, [points]);
 
+  const chartData = useMemo(() => {
+    const allPoints = Array.isArray(points) ? points : [];
+    const visiblePoints = allPoints
+      .filter((point) =>
+        point.gross >= ACTUAL_SPREAD_X_DOMAIN[0] &&
+        point.gross <= ACTUAL_SPREAD_X_DOMAIN[1] &&
+        point.net >= ACTUAL_SPREAD_Y_DOMAIN[0] &&
+        point.net <= ACTUAL_SPREAD_Y_DOMAIN[1]
+      )
+      .sort((a, b) => a.gross - b.gross || a.net - b.net);
+
+    const highlightPoints = visiblePoints.filter((point) =>
+      point.gross >= ACTUAL_SPREAD_FOCUS_WINDOW.grossMin &&
+      point.gross <= ACTUAL_SPREAD_FOCUS_WINDOW.grossMax &&
+      point.net >= ACTUAL_SPREAD_FOCUS_WINDOW.netMin &&
+      point.net <= ACTUAL_SPREAD_FOCUS_WINDOW.netMax
+    );
+    const trendBuckets = buildGrossSpreadBuckets(visiblePoints, { start: 0.75, end: 4.25, width: 0.25, minCount: 6 });
+
+    return {
+      visiblePoints,
+      highlightPoints,
+      omittedCount: Math.max(0, allPoints.length - visiblePoints.length),
+      trendBuckets
+    };
+  }, [points]);
+
+  const padding = { top: 28, right: 22, bottom: 52, left: 56 };
+  const plotWidth = Math.max(1, width - padding.left - padding.right);
+  const plotHeight = Math.max(1, safeHeight - padding.top - padding.bottom);
+  const xFor = (value) => padding.left + ((value - ACTUAL_SPREAD_X_DOMAIN[0]) / (ACTUAL_SPREAD_X_DOMAIN[1] - ACTUAL_SPREAD_X_DOMAIN[0])) * plotWidth;
+  const yFor = (value) => padding.top + plotHeight - ((value - ACTUAL_SPREAD_Y_DOMAIN[0]) / (ACTUAL_SPREAD_Y_DOMAIN[1] - ACTUAL_SPREAD_Y_DOMAIN[0])) * plotHeight;
+  const xTicks = Array.from({ length: 8 }, (_, idx) => 0.5 + idx * 0.5);
+  const yTicks = Array.from({ length: 6 }, (_, idx) => 0.5 + idx * 0.5);
+  const focusX = xFor(ACTUAL_SPREAD_TARGET.gross);
+  const focusY = yFor(ACTUAL_SPREAD_TARGET.net);
+  const calloutWidth = Math.min(218, Math.max(160, width * 0.26));
+  const calloutX = Math.min(width - padding.right - calloutWidth, focusX + 28);
+  const calloutY = Math.max(padding.top + 6, focusY - 94);
+  const trendPath = chartData.trendBuckets.length
+    ? chartData.trendBuckets.map((bucket, idx) => `${idx === 0 ? 'M' : 'L'} ${xFor(bucket.grossMid)} ${yFor(bucket.medianNet)}`).join(' ')
+    : '';
+
+  return (
+    <div className="actual-spread-chart-shell">
+      <div ref={containerRef} className="actual-spread-chart-wrap">
+        <svg
+          className="actual-spread-chart-svg"
+          viewBox={`0 0 ${width} ${safeHeight}`}
+          role="img"
+          aria-label="Scatter plot of actual Pathway fund gross multiples against net TVPI, with the 2.5x gross and 2.0x net baseline region highlighted."
+        >
+          <defs>
+            <linearGradient id="actualSpreadFocusFill" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stopColor="#F1D98C" stopOpacity="0.38" />
+              <stop offset="100%" stopColor="#4A7BA7" stopOpacity="0.14" />
+            </linearGradient>
+            <filter id="actualSpreadGlow">
+              <feGaussianBlur stdDeviation="6" result="coloredBlur" />
+              <feMerge>
+                <feMergeNode in="coloredBlur" />
+                <feMergeNode in="SourceGraphic" />
+              </feMerge>
+            </filter>
+          </defs>
+
+          <rect
+            x={xFor(ACTUAL_SPREAD_FOCUS_WINDOW.grossMin)}
+            y={yFor(ACTUAL_SPREAD_FOCUS_WINDOW.netMax)}
+            width={xFor(ACTUAL_SPREAD_FOCUS_WINDOW.grossMax) - xFor(ACTUAL_SPREAD_FOCUS_WINDOW.grossMin)}
+            height={yFor(ACTUAL_SPREAD_FOCUS_WINDOW.netMin) - yFor(ACTUAL_SPREAD_FOCUS_WINDOW.netMax)}
+            fill="url(#actualSpreadFocusFill)"
+            stroke="rgba(201, 168, 76, 0.92)"
+            strokeWidth="2"
+            strokeDasharray="7 6"
+            rx="14"
+          />
+
+          {yTicks.map((tick) => (
+            <g key={`actual-y-${tick}`}>
+              <line x1={padding.left} x2={width - padding.right} y1={yFor(tick)} y2={yFor(tick)} stroke="#E5EBF4" strokeWidth="1" />
+              <text x={padding.left - 10} y={yFor(tick) + 4} textAnchor="end" className="actual-spread-axis-label">
+                {tick.toFixed(1)}x
+              </text>
+            </g>
+          ))}
+
+          {xTicks.map((tick) => (
+            <g key={`actual-x-${tick}`}>
+              <line x1={xFor(tick)} x2={xFor(tick)} y1={padding.top} y2={safeHeight - padding.bottom} stroke="#EEF3FA" strokeWidth="1" />
+              <text x={xFor(tick)} y={safeHeight - padding.bottom + 22} textAnchor="middle" className="actual-spread-axis-label">
+                {tick.toFixed(1)}x
+              </text>
+            </g>
+          ))}
+
+          <line x1={padding.left} x2={padding.left} y1={padding.top} y2={safeHeight - padding.bottom} stroke="#AEBBD2" strokeWidth="1.2" />
+          <line x1={padding.left} x2={width - padding.right} y1={safeHeight - padding.bottom} y2={safeHeight - padding.bottom} stroke="#AEBBD2" strokeWidth="1.2" />
+
+          {trendPath ? (
+            <path
+              d={trendPath}
+              fill="none"
+              stroke="rgba(74, 123, 167, 0.8)"
+              strokeWidth="3"
+              strokeDasharray="8 8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ) : null}
+
+          {chartData.visiblePoints.map((point, idx) => {
+            const threshold = idx / Math.max(1, chartData.visiblePoints.length - 1);
+            const reveal = clamp((revealProgress - threshold) * 11, 0, 1);
+            if (reveal <= 0) return null;
+            const inFocus = point.gross >= ACTUAL_SPREAD_FOCUS_WINDOW.grossMin &&
+              point.gross <= ACTUAL_SPREAD_FOCUS_WINDOW.grossMax &&
+              point.net >= ACTUAL_SPREAD_FOCUS_WINDOW.netMin &&
+              point.net <= ACTUAL_SPREAD_FOCUS_WINDOW.netMax;
+            return (
+              <circle
+                key={`actual-point-${point.id}`}
+                cx={xFor(point.gross)}
+                cy={yFor(point.net)}
+                r={inFocus ? 3.5 : 2.8}
+                fill={inFocus ? '#C9A84C' : '#1B2A4A'}
+                fillOpacity={inFocus ? 0.88 * reveal : 0.24 * reveal}
+                stroke={inFocus ? 'rgba(255, 255, 255, 0.88)' : 'none'}
+                strokeWidth={inFocus ? '0.8' : '0'}
+                onMouseEnter={() => setHoverPoint(point)}
+                onMouseLeave={() => setHoverPoint(null)}
+              />
+            );
+          })}
+
+          <circle cx={focusX} cy={focusY} r="16" fill="rgba(201, 168, 76, 0.18)" filter="url(#actualSpreadGlow)" />
+          <circle cx={focusX} cy={focusY} r="7.5" fill="#FFFFFF" stroke="#1B2A4A" strokeWidth="2.4" />
+          <circle cx={focusX} cy={focusY} r="3.6" fill="#1B2A4A" />
+
+          <path
+            d={`M ${calloutX} ${calloutY + 62} C ${calloutX - 12} ${calloutY + 74}, ${focusX + 16} ${focusY - 10}, ${focusX + 2} ${focusY - 2}`}
+            fill="none"
+            stroke="rgba(27, 42, 74, 0.55)"
+            strokeWidth="1.6"
+          />
+          <rect x={calloutX} y={calloutY} width={calloutWidth} height="72" rx="12" fill="rgba(255, 255, 255, 0.94)" stroke="#D6DFEC" />
+          <text x={calloutX + 12} y={calloutY + 20} className="actual-spread-callout-kicker">Highlighted Baseline Zone</text>
+          <text x={calloutX + 12} y={calloutY + 40} className="actual-spread-callout-title">{ACTUAL_SPREAD_TARGET.gross.toFixed(1)}x gross to {ACTUAL_SPREAD_TARGET.net.toFixed(1)}x net</text>
+          <text x={calloutX + 12} y={calloutY + 58} className="actual-spread-callout-copy">Dense observed cluster from actual Pathway fund outcomes.</text>
+
+          <text x={padding.left + plotWidth / 2} y={safeHeight - 10} textAnchor="middle" className="actual-spread-axis-title">
+            Gross Multiple
+          </text>
+          <text
+            x="18"
+            y={padding.top + plotHeight / 2}
+            textAnchor="middle"
+            transform={`rotate(-90 18 ${padding.top + plotHeight / 2})`}
+            className="actual-spread-axis-title"
+          >
+            Net TVPI
+          </text>
+        </svg>
+      </div>
+
+      <div className="actual-spread-hover-readout" role="status" aria-live="polite">
+        {hoverPoint ? (
+          <>
+            <span className="actual-spread-hover-label">Actual fund outcome</span>
+            <span className="actual-spread-hover-sep">|</span>
+            <span>Gross {hoverPoint.gross.toFixed(2)}x</span>
+            <span className="actual-spread-hover-sep">|</span>
+            <span>Net {hoverPoint.net.toFixed(2)}x</span>
+          </>
+        ) : (
+          <>
+            <span className="actual-spread-hover-label">Dotted line</span>
+            <span className="actual-spread-hover-sep">|</span>
+            <span>Median observed net outcome by gross-return band, using anonymized Pathway fund observations.</span>
+          </>
+        )}
+      </div>
+
+      {chartData.omittedCount > 0 ? (
+        <div className="actual-spread-outlier-note">
+          A small number of extreme outliers are excluded from the plot window so the core gross-to-net distribution remains legible.
+        </div>
+      ) : null}
+    </div>
+  );
+};
+
+const GrossNetSpreadTrendChart = ({ buckets, height = 210 }) => {
+  const containerRef = useRef(null);
+  const [width, setWidth] = useState(900);
+  const safeHeight = Math.max(180, height);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return undefined;
+    const update = () => setWidth(Math.max(320, el.clientWidth || 900));
+    update();
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null;
+    if (observer) observer.observe(el);
+    window.addEventListener('resize', update);
+    return () => {
+      window.removeEventListener('resize', update);
+      if (observer) observer.disconnect();
+    };
+  }, []);
+
+  const safeBuckets = Array.isArray(buckets) ? buckets : [];
+  if (!safeBuckets.length) return null;
+
+  const padding = { top: 20, right: 18, bottom: 40, left: 88 };
+  const plotWidth = Math.max(1, width - padding.left - padding.right);
+  const plotHeight = Math.max(1, safeHeight - padding.top - padding.bottom);
+  const minX = safeBuckets[0].grossMid - 0.25;
+  const maxX = safeBuckets[safeBuckets.length - 1].grossMid + 0.25;
+  const minY = 0;
+  const maxY = Math.max(1.05, ...safeBuckets.map((bucket) => bucket.medianSpread));
+  const xFor = (value) => padding.left + ((value - minX) / (maxX - minX)) * plotWidth;
+  const yFor = (value) => padding.top + plotHeight - ((value - minY) / (maxY - minY)) * plotHeight;
+  const path = safeBuckets.map((bucket, idx) => `${idx === 0 ? 'M' : 'L'} ${xFor(bucket.grossMid)} ${yFor(bucket.medianSpread)}`).join(' ');
+
+  return (
+    <div className="actual-spread-trend-shell">
+      <div className="actual-spread-trend-head">
+        <div className="actual-spread-trend-title">How the spread widens</div>
+        <div className="actual-spread-trend-copy">Median gross-minus-net spread by gross-return band.</div>
+      </div>
+      <div ref={containerRef} className="actual-spread-trend-wrap">
+        <svg className="actual-spread-trend-svg" viewBox={`0 0 ${width} ${safeHeight}`} role="img" aria-label="Median gross-minus-net spread by gross-return band.">
+          {Array.from({ length: 5 }, (_, idx) => idx * 0.25).map((tick) => (
+            <g key={`spread-y-${tick}`}>
+              <line x1={padding.left} x2={width - padding.right} y1={yFor(tick)} y2={yFor(tick)} stroke="#E7ECF5" strokeWidth="1" />
+              <text x={padding.left - 10} y={yFor(tick) + 4} textAnchor="end" className="actual-spread-axis-label">
+                {tick.toFixed(2)}x
+              </text>
+            </g>
+          ))}
+
+          {safeBuckets.map((bucket) => (
+            <g key={`spread-x-${bucket.grossMid}`}>
+              <line x1={xFor(bucket.grossMid)} x2={xFor(bucket.grossMid)} y1={padding.top} y2={safeHeight - padding.bottom} stroke="#F0F3F9" strokeWidth="1" />
+              <text x={xFor(bucket.grossMid)} y={safeHeight - padding.bottom + 20} textAnchor="middle" className="actual-spread-axis-label">
+                {bucket.grossMid.toFixed(1)}x
+              </text>
+            </g>
+          ))}
+
+          <path d={path} fill="none" stroke="#B5473A" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+          {safeBuckets.map((bucket) => (
+            <g key={`spread-point-${bucket.grossMid}`}>
+              <circle cx={xFor(bucket.grossMid)} cy={yFor(bucket.medianSpread)} r="4.5" fill="#FFFFFF" stroke="#B5473A" strokeWidth="2.4" />
+              <text x={xFor(bucket.grossMid)} y={yFor(bucket.medianSpread) - 10} textAnchor="middle" className="actual-spread-trend-value">
+                {bucket.medianSpread.toFixed(2)}x
+              </text>
+            </g>
+          ))}
+
+          <text x={padding.left + plotWidth / 2} y={safeHeight - 8} textAnchor="middle" className="actual-spread-axis-title">
+            Gross Return Band
+          </text>
+          <text
+            x="30"
+            y={padding.top + plotHeight / 2}
+            textAnchor="middle"
+            transform={`rotate(-90 30 ${padding.top + plotHeight / 2})`}
+            className="actual-spread-axis-title"
+          >
+            Gross - Net Spread
+          </text>
+        </svg>
+      </div>
+    </div>
+  );
+};
+
+const Header = () => {
   return (
     <header className="site-header">
       <div className="header-content">
-        <div className="header-logo">
+        <div className="header-brand-lockup">
           <img
             className="header-pathway-mark"
-            src="https://pathwaycapital.com/wp-content/uploads/2019/01/pathway-logo@1x.svg"
+            src={pathwayWordmarkUrl}
             alt="Pathway Capital logo"
           />
-          <span className="header-product-tag">Education</span>
+          <div className="header-brand-stack">
+            <span className="header-kicker">Pathway Capital Education</span>
+            <span className="header-title">Private Markets Economics</span>
+          </div>
         </div>
         <div className="header-actions">
-          <div className="header-menu">
-            <button
-              type="button"
-              className="header-menu-button"
-              onClick={() => setMenuOpen((open) => !open)}
-              aria-expanded={menuOpen}
-              aria-label="Open header menu"
-            >
-              <span></span>
-              <span></span>
-              <span></span>
-            </button>
-            {menuOpen && (
-              <div className="header-menu-panel">
-                <button
-                  type="button"
-                  className={`header-menu-item ${activePage === 'economics' ? 'active' : ''}`}
-                  onClick={() => handleNavigate('economics')}
-                >
-                  Private Markets Economics
-                </button>
-                <button
-                  type="button"
-                  className={`header-menu-item ${activePage === 'liquidity' ? 'active' : ''}`}
-                  onClick={() => handleNavigate('liquidity')}
-                >
-                  Liquidity Management
-                </button>
-                <button
-                  type="button"
-                  className={`header-menu-item ${activePage === 'portfolio' ? 'active' : ''}`}
-                  onClick={() => handleNavigate('portfolio')}
-                >
-                  Portfolio Construction
-                </button>
-                <button
-                  type="button"
-                  className={`header-menu-item ${activePage === 'asia' ? 'active' : ''}`}
-                  onClick={() => handleNavigate('asia')}
-                >
-                  Investing in Asia PE
-                </button>
-                <button
-                  type="button"
-                  className={`header-menu-item ${activePage === 'environment' ? 'active' : ''}`}
-                  onClick={() => handleNavigate('environment')}
-                >
-                  Market Environment
-                </button>
-                <button
-                  type="button"
-                  className={`header-menu-item ${activePage === 'custom-terms' ? 'active' : ''}`}
-                  onClick={() => handleNavigate('custom-terms')}
-                >
-                  EDIF IV Economic Terms Comparison
-                </button>
-                <button
-                  type="button"
-                  className={`header-menu-item ${activePage === 'benchmarks' ? 'active' : ''}`}
-                  onClick={() => handleNavigate('benchmarks')}
-                >
-                  VC Benchmarks
-                </button>
-                <a
-                  className="header-menu-item header-menu-link"
-                  href="mailto:newinvestors@pathwaycapital.com?subject=Pathway%20Education%20Inquiry"
-                  onClick={() => setMenuOpen(false)}
-                >
-                  Contact Pathway
-                </a>
-                <div className="header-menu-divider" />
-                <button type="button" className="header-menu-item" onClick={handleToggleCompact}>
-                  Compact Controls: {compactControls ? 'On' : 'Off'}
-                </button>
-              </div>
-            )}
-          </div>
+          <div className="header-note">For institutional LP education</div>
+          <a className="header-cta" href={WALKTHROUGH_MAILTO}>
+            Request a Walkthrough
+          </a>
         </div>
       </div>
     </header>
   );
 };
 
-const StickyContactPrompt = ({ activePage }) => {
+const StickyContactPrompt = () => {
   const [collapsed, setCollapsed] = useState(false);
-  if (activePage === 'environment' || activePage === 'custom-terms' || activePage === 'benchmarks') return null;
-
-  const pageCopy = activePage === 'portfolio'
-    ? { kicker: 'Portfolio construction support', title: 'Talk to Pathway about pacing and exposure' }
-    : activePage === 'liquidity'
-      ? { kicker: 'Liquidity strategy support', title: 'Talk to Pathway about liquidity planning' }
-      : activePage === 'asia'
-        ? { kicker: 'Asia private equity support', title: 'Talk to Pathway about Asia PE portfolio design' }
-        : activePage === 'benchmarks'
-          ? { kicker: 'Benchmark analysis support', title: 'Talk to Pathway about benchmark interpretation and portfolio implications' }
-        : activePage === 'custom-terms'
-          ? { kicker: 'Custom term-sheet support', title: 'Talk to Pathway about custom waterfall economics' }
-      : { kicker: 'Private markets economics support', title: 'Talk to Pathway about gross-to-net outcomes' };
-  const subject = `Pathway Education Inquiry - ${activePage || 'economics'}`;
-  const href = `mailto:newinvestors@pathwaycapital.com?subject=${encodeURIComponent(subject)}`;
+  const href = buildMailtoHref('Pathway Economics Follow-Up');
 
   if (collapsed) {
     return (
@@ -3122,7 +3480,7 @@ const StickyContactPrompt = ({ activePage }) => {
         onClick={() => setCollapsed(false)}
         aria-label="Open Pathway contact prompt"
       >
-        Talk to Pathway
+        Request a Walkthrough
       </button>
     );
   }
@@ -3144,19 +3502,77 @@ const StickyContactPrompt = ({ activePage }) => {
         rel="noreferrer"
         aria-label="Contact Pathway new investors"
       >
-        <span className="sticky-contact-kicker">{pageCopy.kicker}</span>
-        <span className="sticky-contact-title">{pageCopy.title}</span>
-        <span className="sticky-contact-email">newinvestors@pathwaycapital.com</span>
+        <span className="sticky-contact-kicker">Pathway Capital</span>
+        <span className="sticky-contact-title">Request a 15-minute walkthrough</span>
+        <span className="sticky-contact-email">{CONTACT_EMAIL}</span>
       </a>
     </div>
   );
 };
 
-const PathwayInlineCta = ({ line = 'Want to pressure-test this with an expert?' }) => (
+const PathwayInlineCta = ({
+  line = 'Want to pressure-test this with an expert?',
+  subject = 'Pathway Private Markets Economics Follow-Up',
+  ctaLabel = 'Request a Walkthrough'
+}) => (
   <div className="pathway-inline-cta">
-    <span>{line}</span>{' '}
-    <a href="mailto:newinvestors@pathwaycapital.com">Contact Pathway at newinvestors@pathwaycapital.com</a>.
+    <span>{line}</span>
+    <a href={buildMailtoHref(subject)}>{ctaLabel}</a>
   </div>
+);
+
+const ComplianceModal = ({ onAcknowledge }) => (
+  <div className="compliance-modal-backdrop">
+    <div
+      className="compliance-modal"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="compliance-modal-title"
+      aria-describedby="compliance-modal-copy"
+    >
+      <div className="compliance-modal-kicker">Important Information</div>
+      <h2 id="compliance-modal-title">Educational material for institutional audiences</h2>
+      <div id="compliance-modal-copy" className="compliance-modal-copy">
+        <p>
+          This site is for educational purposes only. It is not an offer to sell or a solicitation to buy any security,
+          fund, or advisory service.
+        </p>
+        <p>
+          Examples on this page use hypothetical and illustrative assumptions. They simplify real-world fund documents and
+          should not be treated as a prediction or a recommendation.
+        </p>
+        <p>
+          Past performance is not indicative of future results. Please review fund documentation and speak with Pathway
+          directly before relying on any scenario shown here.
+        </p>
+      </div>
+      <div className="compliance-modal-meta">As of {SITE_AS_OF_DATE}</div>
+      <div className="compliance-modal-actions">
+        <a className="compliance-modal-link" href={WALKTHROUGH_MAILTO}>
+          Contact Pathway
+        </a>
+        <button type="button" className="compliance-modal-button" onClick={onAcknowledge}>
+          Continue to Site
+        </button>
+      </div>
+    </div>
+  </div>
+);
+
+const ComplianceFooter = () => (
+  <footer className="compliance-footer">
+    <div className="compliance-footer-inner">
+      <div className="compliance-footer-title">Pathway Capital | Private Markets Economics</div>
+      <p>
+        For educational purposes only. This material is illustrative, does not constitute an offer or solicitation,
+        and should not be relied on as investment, legal, accounting, or tax advice.
+      </p>
+      <p>
+        Hypothetical examples simplify fund terms and cash flow timing. Past performance is not indicative of future
+        results. As of {SITE_AS_OF_DATE}.
+      </p>
+    </div>
+  </footer>
 );
 
 const HeroGrossNetGraph = () => {
@@ -4486,16 +4902,19 @@ const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMult
 
 const HeroSection = () => (
     <section id="hero-baseline" className="hero-section">
-      <div className="pathway-badge">Interactive Learning Model</div>
-      <h1>The Economics of Private Equity</h1>
+      <div className="pathway-badge">Pathway Capital Educational Guide</div>
+      <h1>From Gross Returns to Net LP Results</h1>
       <p className="hero-subtitle">
-        Controlling costs in private markets is critical. Below is an interactive guide to help
-        you understand how these costs impact returns, and strategies for how Pathway improves these outcomes.
+        Fees, carry, expenses, and timing shape what LPs actually keep.
       </p>
       <p className="hero-purpose-note">
-        This guide is for LPs who want to understand what they are paying for. Strong funds can
-        justify strong economics, but only if you can trace each term from gross performance to net outcome.
+        A Pathway guide for institutional LPs who want to see where the spread comes from and how to diligence it.
       </p>
+      <div className="hero-action-bar">
+        <a className="hero-primary-cta" href={WALKTHROUGH_MAILTO}>Request a Walkthrough</a>
+        <a className="hero-secondary-cta" href="#why-matters">Explore the Model</a>
+      </div>
+      <div className="hero-trust-strip">Educational only. Illustrative assumptions. As of {SITE_AS_OF_DATE}.</div>
 
       <HeroGrossNetGraph />
 
@@ -4506,6 +4925,7 @@ const HeroSection = () => (
 const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
   const [localGrossReturn, setLocalGrossReturn] = useState(2.5);
   const grossReturn = globalGrossMultiple ?? localGrossReturn;
+  const { actualSpreadData, loadError: actualSpreadLoadError, isLoading: actualSpreadLoading } = useActualGrossNetDataset();
   const handleGrossChange = (value) => {
     if (onGrossMultipleChange) {
       onGrossMultipleChange(value);
@@ -4600,6 +5020,38 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
     };
   }, [grossReturn]);
 
+  const actualSpreadSummary = useMemo(() => {
+    if (!actualSpreadData || !Array.isArray(actualSpreadData.points) || actualSpreadData.points.length === 0) return null;
+    const points = actualSpreadData.points;
+    const buckets = buildGrossSpreadBuckets(points, { start: 0.75, end: 4.25, width: 0.5, minCount: 8 });
+    const aroundBaselineGross = points.filter((point) => point.gross >= 2.4 && point.gross <= 2.6);
+    const highlightedCluster = points.filter((point) =>
+      point.gross >= ACTUAL_SPREAD_FOCUS_WINDOW.grossMin &&
+      point.gross <= ACTUAL_SPREAD_FOCUS_WINDOW.grossMax &&
+      point.net >= ACTUAL_SPREAD_FOCUS_WINDOW.netMin &&
+      point.net <= ACTUAL_SPREAD_FOCUS_WINDOW.netMax
+    );
+    const visiblePoints = points.filter((point) =>
+      point.gross >= ACTUAL_SPREAD_X_DOMAIN[0] &&
+      point.gross <= ACTUAL_SPREAD_X_DOMAIN[1] &&
+      point.net >= ACTUAL_SPREAD_Y_DOMAIN[0] &&
+      point.net <= ACTUAL_SPREAD_Y_DOMAIN[1]
+    );
+    const nearbyAverageNet = aggregateValues(aroundBaselineGross.map((point) => point.net), 'mean');
+    const spreadAt25 = buckets.find((bucket) => Math.abs(bucket.grossMid - 2.5) < 0.001) || null;
+    const spreadAt40 = buckets.find((bucket) => Math.abs(bucket.grossMid - 4.0) < 0.001) || null;
+
+    return {
+      buckets,
+      nearbyAverageNet,
+      nearbyCount: aroundBaselineGross.length,
+      highlightedCount: highlightedCluster.length,
+      omittedCount: Math.max(0, points.length - visiblePoints.length),
+      spreadAt25: spreadAt25 ? spreadAt25.medianSpread : null,
+      spreadAt40: spreadAt40 ? spreadAt40.medianSpread : null
+    };
+  }, [actualSpreadData]);
+
   const resetIntro = () => handleGrossChange(BASELINE_GROSS_TVPI);
 
   return (
@@ -4618,18 +5070,16 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
       </p>
 
       <p>
-        Minimizing fees is generally a solid goal, but the gross-to-net spread is driven by
-        multiple economic terms rather than any single line item. One of the most important is
-        carried interest: the GP's share of profits, which is both a transfer from LP gross
-        returns and an incentive to drive stronger performance. A fund that returns 3x and pays
-        meaningful carry can still deliver excellent net outcomes. A fund that returns 1x and pays
-        little or no carry has still consumed years of capital with limited value creation.
+        The interactive bridge below shows how fees, expenses, and carry can translate a representative fund-level gross outcome
+        into a net result for investors. In this context, gross return refers to the performance generated by the underlying
+        portfolio companies before fund costs, while net return reflects what LPs retain after those associated fees and expenses
+        are paid.
       </p>
 
       <div className="interactive-block management-fee-block">
         <div className="block-header">
           <span className="block-title">From Gross to Net</span>
-          <span className="block-subtitle">Drag gross MOIC and watch the bridge into net TVPI</span>
+          <span className="block-subtitle">Adjust gross MOIC and see how fund economics convert it into net TVPI.</span>
         </div>
         <div className="block-actions">
           <ResetButton onClick={resetIntro} />
@@ -4745,16 +5195,66 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
       </div>
 
       <p>
-        The difference between gross and net isn't a mystery or a trick. It's the result
-        of contractual economics that compensate GPs for their work and align incentives
-        around performance. Understanding these mechanics makes you a better investor—able
-        to evaluate terms, negotiate where appropriate, and set realistic expectations for
-        your portfolio.
+        To anchor that framework in observed outcomes, the charts below use anonymized Pathway-tracked fund data spanning approximately 800 funds dating back to the early 1990s. They show the realized difference between fund-level gross and net returns across a broad sample of actual investments.
+      </p>
+
+      <div className="interactive-block actual-spread-block">
+        <div className="block-header">
+          <span className="block-title">Anonymized Pathway Gross-to-Net Outcomes</span>
+          <span className="block-subtitle">A large observed sample gives the public baseline a realistic anchor.</span>
+        </div>
+
+        <p className="actual-spread-intro">
+          We are not suggesting that every fund will deliver <strong>2.5x gross and 2.0x net</strong>. Rather, that pairing reflects a common private equity target return profile and sits within a dense observed cluster in this dataset.
+        </p>
+        <p className="actual-spread-intro compact">
+          The broader takeaway is that gross outcomes generally exceed net outcomes, the spread is shaped by multiple fund terms, and the gap tends to widen as gross returns rise.
+        </p>
+
+        {actualSpreadLoading ? (
+          <p className="portfolio-inline-note">Loading actual Pathway fund outcomes...</p>
+        ) : actualSpreadLoadError ? (
+          <p className="portfolio-inline-note">{actualSpreadLoadError}</p>
+        ) : actualSpreadData && actualSpreadSummary ? (
+          <>
+            <div className="metrics-row actual-spread-metrics">
+              <MetricCard
+                label="Anonymized Funds"
+                value={ACTUAL_SPREAD_DISPLAY_COUNT.toLocaleString()}
+                subtext={`Observed by Pathway | vintages ${ACTUAL_SPREAD_VINTAGE_RANGE_LABEL}`}
+                accent="#1B2A4A"
+              />
+              <MetricCard
+                label="Typical Net Near 2.5x Gross"
+                value={`${actualSpreadSummary.nearbyAverageNet.toFixed(2)}x`}
+                subtext={`${actualSpreadSummary.nearbyCount} anonymized funds between 2.4x and 2.6x gross`}
+                accent="#2D6B4F"
+              />
+              <MetricCard
+                label="Spread Widens"
+                value={`${actualSpreadSummary.spreadAt25?.toFixed(2) || '0.00'}x -> ${actualSpreadSummary.spreadAt40?.toFixed(2) || '0.00'}x`}
+                subtext="Median gross-minus-net spread from 2.5x to 4.0x gross bands"
+                accent="#C9A84C"
+              />
+            </div>
+
+            <ActualGrossNetScatter points={actualSpreadData.points} />
+            <GrossNetSpreadTrendChart buckets={actualSpreadSummary.buckets} />
+
+            <p className="actual-spread-footnote">
+              These are anonymized actual returns across {ACTUAL_SPREAD_DISPLAY_COUNT.toLocaleString()} Pathway-observed funds from vintage years {ACTUAL_SPREAD_VINTAGE_RANGE_LABEL}. Some extreme outliers are removed from the visible plot window for readability.
+              Many of the terms that shape this spread are knowable before a fund starts, which is exactly why sophisticated LPs diligence and negotiate them.
+            </p>
+          </>
+        ) : null}
+      </div>
+
+      <p>
+        The difference between gross and net is not mysterious. It is the cumulative effect of contractual economics that compensate the GP, allocate risk, and determine how much of the underlying portfolio return ultimately reaches investors.
       </p>
 
       <p>
-        Let's break down each component, starting with the most straightforward: the
-        management fee.
+        With that context in place, we can break down each component, starting with the most straightforward: the management fee.
       </p>
     </section>
   );
@@ -4878,6 +5378,7 @@ const ManagementFeeSection = () => {
   const lpTotalFees = totalFees * lpShare;
   const lpFeeAsPercentOfCommitment = lpCommitment > 0 ? lpTotalFees / lpCommitment : 0;
   const lpAverageAnnualFee = lpTotalFees / fundLife;
+  const lpAverageAnnualFeePctOfCommitment = lpCommitment > 0 ? lpAverageAnnualFee / lpCommitment : 0;
   const lpPeakAnnualFee = Math.max(...feeData.map((d) => d.fee)) * lpShare;
   const postInvestmentRows = feeData.filter((d) => d.isPostInvestment);
   const lpPostInvestmentAvgFee = postInvestmentRows.length > 0
@@ -5020,26 +5521,27 @@ const ManagementFeeSection = () => {
 
         <div className="metrics-row">
           <MetricCard
-            label="Total Management Fees"
+            label="Total Fees Paid to GP"
             value={formatCurrency(totalFees * 1e6, 0)}
-            subtext="Fund-level fees"
+            subtext="Cumulative management fees paid by all LPs"
           />
           <MetricCard
-            label="Illustrative LP Fees"
+            label="Illustrative Single-LP Fees"
             value={formatCurrency(lpTotalFees * 1e6, 0)}
             subtext={`On ${formatCurrency(lpCommitment * 1e6, 0)} commitment`}
             accent="#4A7BA7"
           />
           <MetricCard
-            label="LP Fee Load"
-            value={formatPercent(lpFeeAsPercentOfCommitment)}
-            subtext="As % of LP commitment"
-            accent="#B5473A"
+            label="Illustrative Single-LP Average Annual Fee"
+            value={formatCurrency(lpAverageAnnualFee * 1e6, 0)}
+            subtext={`${formatPercent(lpAverageAnnualFeePctOfCommitment, 2)} of commitment per year`}
+            accent="#9A9690"
           />
           <MetricCard
-            label="LP Average Annual Fee"
-            value={formatCurrency(lpAverageAnnualFee * 1e6, 0)}
-            accent="#9A9690"
+            label="LP Fee Load"
+            value={formatPercent(lpFeeAsPercentOfCommitment)}
+            subtext="Total fees as % of LP commitment"
+            accent="#B5473A"
           />
         </div>
 
@@ -5442,6 +5944,7 @@ const ExpensesSection = ({
     lineOfCreditAnalysis.tvpiDrag < 0;
 
   return (
+    <>
     <section id="fund-expenses" className="content-section">
       <h2>Fund Expenses: Required Operating Costs</h2>
 
@@ -5606,27 +6109,29 @@ const ExpensesSection = ({
         P&L to the fund.
       </p>
 
-      <section id="lines-of-credit" className="content-subsection">
-        <h3>Subscription Lines Of Credit</h3>
+    </section>
 
-        <p>
-          At the fund level, a subscription line is a short-term credit facility secured by LP
-          commitments. GPs often use it to bridge capital calls, close transactions quickly, and
-          make call activity more operationally efficient. Typical facility sizes are often in the
-          <strong> 10% to 25%</strong> range of fund commitments, with many draws repaid in a few months.
-          Practically, it works like this: when a GP closes a new deal, they can borrow on the line
-          first instead of calling LP capital immediately, then call capital later to repay the line
-          (plus interest). That mostly shifts the timing of your capital call.
-        </p>
+    <section id="lines-of-credit" className="content-section">
+      <h2>Subscription Lines Of Credit</h2>
 
-        <div className="interactive-block line-credit-block">
-          <div className="block-header">
-            <span className="block-title">Lines Of Credit: IRR Lift vs TVPI Drag</span>
-            <span className="block-subtitle">Delay calls, add interest expense, and compare both outcomes clearly</span>
-          </div>
-          <div className="block-actions">
-            <ResetButton onClick={resetExpenses} />
-          </div>
+      <p>
+        At the fund level, a subscription line is a short-term credit facility secured by LP
+        commitments. GPs often use it to bridge capital calls, close transactions quickly, and
+        make call activity more operationally efficient. Typical facility sizes are often in the
+        <strong> 10% to 25%</strong> range of fund commitments, with many draws repaid in a few months.
+        Practically, it works like this: when a GP closes a new deal, they can borrow on the line
+        first instead of calling LP capital immediately, then call capital later to repay the line
+        (plus interest). That mostly shifts the timing of your capital call.
+      </p>
+
+      <div className="interactive-block line-credit-block">
+        <div className="block-header">
+          <span className="block-title">Lines Of Credit: IRR Lift vs TVPI Drag</span>
+          <span className="block-subtitle">Delay calls, add interest expense, and compare both outcomes clearly</span>
+        </div>
+        <div className="block-actions">
+          <ResetButton onClick={resetExpenses} />
+        </div>
 
           <div className="sliders-grid">
             <Slider
@@ -5691,6 +6196,32 @@ const ExpensesSection = ({
             <p className="loc-call-timing-note">
               This chart is intentionally limited to the deployment and near-paydown window to keep
               timing effects readable.
+            </p>
+          </div>
+
+          <div className="loc-mechanics-explainer">
+            <div className="loc-mechanics-title">Why IRR Improves While TVPI Declines</div>
+            <div className="loc-mechanics-grid">
+              <div className="loc-mechanics-card positive">
+                <div className="loc-mechanics-card-title">Why IRR usually looks better</div>
+                <p>
+                  IRR is highly sensitive to <strong>when</strong> capital leaves the LP. A subscription line delays those
+                  capital calls, which means less LP cash is outstanding in the early periods. The same distributions are then
+                  measured against a later contribution schedule, so the annualized return calculation moves up.
+                </p>
+              </div>
+              <div className="loc-mechanics-card negative">
+                <div className="loc-mechanics-card-title">Why TVPI usually gets worse</div>
+                <p>
+                  TVPI is about <strong>how many dollars come back</strong> relative to dollars contributed. The line does not
+                  create new portfolio value. It adds interest expense, and that expense is paid by the fund. Those borrowing costs
+                  reduce the cash ultimately available to LPs, so net TVPI declines.
+                </p>
+              </div>
+            </div>
+            <p className="loc-mechanics-summary">
+              Put differently: the line mostly changes <strong>timing</strong>, which helps IRR, while the interest bill changes
+              <strong> total dollars kept</strong>, which hurts TVPI.
             </p>
           </div>
 
@@ -5842,17 +6373,18 @@ const ExpensesSection = ({
               </>
             ) : null}
           </NuanceDisclosure>
-        </div>
-      </section>
+      </div>
 
       <WhatWeDidntCover
         items={[
-          'How fund expense practices have changed over time, including periods where more costs shifted from GP operating budgets into fund-level expenses.',
-          'How expense caps are often negotiated as a percentage limit (for example, against committed capital or an annual expense budget) and what sits inside vs outside those caps.',
-          'How expense definitions and reimbursement mechanics are negotiable terms in the LPA and side letters, just like fee rates and carry terms.'
+          'How subscription line usage policies differ by manager, including internal limits on draw size, tenor, and the situations where the facility is allowed to be used.',
+          'How lenders size these facilities using LP concentration, investor quality, and borrowing base mechanics rather than just headline fund size.',
+          'How fund documents and side letters can constrain line usage, require reporting, or limit whether facilities are used for operational convenience versus return presentation.'
         ]}
       />
     </section>
+
+    </>
   );
 };
 
@@ -6007,29 +6539,40 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
 
   return (
     <section id="carried-interest" className="content-section">
-      <h2>Carried Interest: The Performance Incentive</h2>
+      <h2>Carry: How The Manager Shares In The Upside</h2>
 
       <p className="assumption-note">
-        Assumptions for this section: full deployment, no recycling, European-style waterfall, and
-        an illustrative 0.20x non-carry spread is already baked into the pre-carry net return.
-        The bridge below only shows carry mechanics.
+        This section isolates carry only. It assumes the fund is fully invested, does not recycle capital,
+        uses a whole-fund payout structure, and has already absorbed other non-carry fees and expenses before
+        the carry step.
       </p>
 
       <p>
-        Carried interest is the GP share of profits once the hurdle has been achieved.
-        This section builds LP outcomes from gross profit, then subtracts GP catch-up and
-        GP carry share as negative deductions.
+        <strong>Carry</strong> is the manager&apos;s share of fund profits. In simple terms: if the fund performs well enough,
+        the GP gets part of the upside. If results are not good enough, the GP does not earn carry.
       </p>
 
       <p>
-        The hurdle is tested on a <strong>net LP basis</strong>. Hold period matters because
-        compounding raises the dollar profit required before carry can turn on.
+        The payout order is the key idea. First, LPs get back the money they invested. Second, LPs usually must earn a minimum
+        return before carry can start. Only after those two steps does the GP begin sharing in profits. That is why carry is
+        different from management fees: management fees are paid along the way, but carry is more like a success fee.
+      </p>
+
+      <p>
+        Time matters too. If the minimum return is 8% per year, clearing that bar over five years requires more profit than clearing
+        it over three years. So a longer hold period makes it harder for carry to turn on.
+      </p>
+
+      <p>
+        The practical takeaway is simple: carry usually does not matter much in weak outcomes, because there may not be enough profit
+        to trigger it. It matters most in stronger outcomes, where the GP starts taking a share of profit that would otherwise stay
+        with LPs.
       </p>
 
       <div className="interactive-block">
         <div className="block-header">
-          <span className="block-title">Carry Bridge: Pre-Carry Net Return To LP Net Outcome</span>
-          <span className="block-subtitle">Start from net return before carry, then apply hurdle, catch-up, and final split</span>
+          <span className="block-title">Before Carry vs After Carry</span>
+          <span className="block-subtitle">Start with the LP result before carry, then see when carry turns on and how the profit gets divided.</span>
         </div>
         <div className="block-actions">
           <ResetButton onClick={resetCarry} />
@@ -6088,21 +6631,22 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
           <div className="hurdle-indicator"></div>
           <span>
             {waterfallData.hurdleCleared
-              ? `Pre-carry net IRR of ${formatPercent(preCarryNetIRR, 1)} clears the ${formatPercent(hurdleRate, 1)} hurdle by +${preCarryVsHurdleBps.toFixed(0)} bps, so carry applies to excess profits.`
-              : `Pre-carry net IRR of ${formatPercent(preCarryNetIRR, 1)} is below the ${formatPercent(hurdleRate, 1)} hurdle by ${Math.abs(preCarryVsHurdleBps).toFixed(0)} bps, so carry is not yet active.`
+              ? `Before carry, the LP return is ${formatPercent(preCarryNetIRR, 1)}. That is above the ${formatPercent(hurdleRate, 1)} minimum return, so the GP now shares in profit above that line.`
+              : `Before carry, the LP return is ${formatPercent(preCarryNetIRR, 1)}. That is still below the ${formatPercent(hurdleRate, 1)} minimum return, so carry has not started yet.`
             }
           </span>
         </div>
 
         <p className="carry-hinge-note">
-          Catch-up hinge: once capital + pref are covered, GP catch-up can temporarily absorb
-          incremental profit, so LP net IRR may not move much until catch-up is complete.
+          One extra wrinkle: some fund agreements include a <strong>catch-up</strong>. That means once LPs have received their money back
+          and cleared the minimum return, the GP may take most of the next dollars for a while so the final sharing ratio lands where the
+          agreement says it should.
         </p>
 
         <WaterfallChart data={waterfallData.stages} height={280} />
 
         <div className="profit-split-panel">
-          <div className="profit-split-title">Profit Split (Of Pre-Carry Profit)</div>
+          <div className="profit-split-title">Where The Profit Goes</div>
           <div className="profit-split-bar">
             <div className="profit-split-segment lp" style={{ width: `${Math.max(0, Math.min(100, lpProfitSharePct * 100))}%` }}>
               LP {formatPercent(lpProfitSharePct, 0)}
@@ -6159,23 +6703,28 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
       <h3>The Waterfall Mechanics</h3>
 
       <p>
-        <strong>1. Return of Capital:</strong> LP capital is returned first.
+        <strong>1. Return LP money first:</strong> before anyone talks about carry, LPs get back the capital they put in.
       </p>
 
       <p>
-        <strong>2. Preferred Return (Hurdle):</strong> This is an earnings threshold, not a
-        separate payout line. In this view the hurdle is {formatPercent(hurdleRate, 1)} over a {holdPeriod}-year
-        hold, so longer hold periods raise required dollars via compounding.
+        <strong>2. Clear the minimum return:</strong> LPs usually need to earn at least the hurdle before the GP gets carry.
+        In this example the hurdle is {formatPercent(hurdleRate, 1)} over a {holdPeriod}-year hold, so the fund has to produce enough
+        profit to beat that annual bar over the full holding period.
       </p>
 
       <p>
-        <strong>3. GP Catch-Up:</strong> After hurdle clearance, GP catch-up can take most near-term
-        incremental profit until the GP is at its carry share, creating a temporary hinge in LP net IRR progression.
+        <strong>3. Catch-up can speed up the GP share:</strong> after LPs have cleared that minimum, the GP may get most of the next dollars
+        for a period of time until the agreed long-run split is reached.
       </p>
 
       <p>
-        <strong>4. Final Split:</strong> Remaining profit is split LP {lpSplitPercent}% / GP {gpSplitPercent}%
-        based on the carry slider.
+        <strong>4. Split the rest of the upside:</strong> after that, any remaining profit is shared LP {lpSplitPercent}% / GP {gpSplitPercent}%
+        based on the carry rate.
+      </p>
+
+      <p>
+        The main point for an LP is that carry changes <strong>who keeps the upside</strong> once the fund performs well. A higher carry rate,
+        an easier hurdle, or a more GP-friendly catch-up means more of the profit shifts from LPs to the manager.
       </p>
 
       <WhatWeDidntCover
@@ -6343,18 +6892,32 @@ const UnderinvestingSection = ({
 
   return (
     <section id="underinvesting-impact" className="content-section">
-      <h2>Underinvesting: Hidden Net Drag</h2>
+      <h2>Underinvesting: When Committed Capital Does Not Get Fully Put To Work</h2>
 
       <p>
-        A GP can underdeploy capital and still produce a strong gross multiple on invested dollars.
-        But from the LP perspective, fee load is still tied to commitment. That makes the gross-to-net
-        spread wider on a commitment basis and can materially reduce net IRR.
+        When an LP commits capital to a fund, the expectation is straightforward: the GP will use that capital
+        to find and fund investments. During the investment period, management fees are typically charged on the
+        full commitment, so LPs are paying the manager to put that capital to work.
+      </p>
+
+      <p>
+        That is why <strong>underinvesting</strong> matters. If a GP only invests part of the committed capital,
+        LPs may still have paid fees on the whole commitment even though only a fraction of it ever reached portfolio
+        companies. In the extreme case, if you commit $100 and the GP invests nothing, you have paid fees but never
+        actually invested a dollar. Real funds are rarely that extreme, but the example makes the point clearly.
+      </p>
+
+      <p>
+        The same logic applies in less extreme cases. If a GP invests 60%, 90%, or 100% of the commitment, the gross
+        return on the dollars that were invested can look identical, but the LP outcome can be very different because
+        fees and expenses were charged against the commitment base. Lower deployment usually means a wider gross-to-net
+        spread for the LP.
       </p>
 
       <div className="interactive-block">
         <div className="block-header">
           <span className="block-title">Deployment Efficiency Stress Test</span>
-          <span className="block-subtitle">Same gross MOIC on invested capital, different net LP outcomes</span>
+          <span className="block-subtitle">Same gross return on invested dollars, different LP outcomes depending on how much of the commitment actually gets invested.</span>
         </div>
         <div className="block-actions">
           <ResetButton onClick={resetUnderinvesting} />
@@ -6376,7 +6939,7 @@ const UnderinvestingSection = ({
             min={0.6}
             max={1.0}
             step={0.01}
-            label="Deployment Rate"
+            label="% Of LP Commitment Actually Invested"
             format={(v) => `${(v * 100).toFixed(0)}%`}
             accent="#C9A84C"
           />
@@ -6407,6 +6970,9 @@ const UnderinvestingSection = ({
               colorB="#2D6B4F"
               height={210}
               showLegend={false}
+              xAxisLabel="Percent Of LP Commitment Invested"
+              xAxisStartLabel="Less invested"
+              xAxisEndLabel="More invested"
               marker={{
                 index: currentDeploymentIndex,
                 label: `Current ${(deploymentRate * 100).toFixed(0)}%`,
@@ -6439,6 +7005,9 @@ const UnderinvestingSection = ({
               colorB="#C9A84C"
               height={210}
               showLegend={false}
+              xAxisLabel="Percent Of LP Commitment Invested"
+              xAxisStartLabel="Less invested"
+              xAxisEndLabel="More invested"
               marker={{
                 index: currentDeploymentIndex,
                 label: `Current ${(deploymentRate * 100).toFixed(0)}%`,
@@ -6450,15 +7019,20 @@ const UnderinvestingSection = ({
 
         <div className="tradeoff-curve underinvesting-curve">
           <p className="bridge-note">
-            Green stays at invested-basis gross MOIC; navy shows the translated commitment-basis
-            gross TVPI as deployment changes.
+            Green shows the gross multiple on the dollars the GP actually invested. Navy translates that same
+            outcome onto the full LP commitment, which is what matters to the investor who paid fees on all of it.
           </p>
           <p className="portfolio-inline-note">
-            <strong>Why does this matter?</strong> Imagine the extreme case where you commit $100M to a fund
-            and only $60M is actually invested. Even if that invested capital returns 3x with exceptional
-            gross performance, you still paid fees on the full $100M commitment. So the LP outcome can be
-            much weaker than the headline gross figure. A 3x on $60M, after fees and carry, can look more
-            like roughly a 1.4x net outcome to LPs.
+            <strong>Why does this matter?</strong> Imagine you commit $100M to a fund and only $60M is actually invested.
+            If that $60M performs very well, the GP can still report a strong gross result on the capital that was deployed.
+            But as the LP, you did not commit only $60M, and you did not pay fees on only $60M. You committed $100M and paid
+            fees on that larger base. So your real commitment-basis outcome can be much weaker than the headline investment-level
+            result. This is exactly why deployment discipline affects the gross-to-net spread.
+          </p>
+          <p className="portfolio-inline-note">
+            This tool focuses on <strong>60% to 100%</strong> deployment to isolate the underinvestment problem. The same basic
+            idea can matter in the other direction as well if a manager ultimately puts more than 100% of commitment to work through
+            recycling or other fund mechanics: the amount of capital actually deployed changes how LP economics should be interpreted.
           </p>
         </div>
 
@@ -6809,7 +7383,7 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
   const betterIrrStructure = currentIrrSpreadBps >= 0 ? '2% / 20%' : '1% / 30%';
 
   return (
-    <section id="fee-carry-tradeoff" className="content-section">
+    <section id="fee-carry-tradeoff" className="content-section compact-controls fee-tradeoff-section">
       <h2>The Fee/Carry Tradeoff</h2>
 
       <p>
@@ -6869,24 +7443,27 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
           ))}
         </div>
 
-        <div className="tvpi-crossover-banner">
-          <div className="tvpi-crossover-topline">TVPI Crossover (Primary)</div>
-          {tvpiCrossoverResult.hasCrossover ? (
-            <>
-              <div className="tvpi-crossover-value">{tvpiCrossoverMultiple.toFixed(2)}x gross MOIC</div>
-              <div className="tvpi-crossover-subtext">
-                At this gross outcome, both fee structures land on roughly the same net TVPI.
-              </div>
-            </>
-          ) : (
-            <div className="tvpi-crossover-subtext">
-              No TVPI crossover appears in the displayed range (1.0x to 3.5x gross).
-            </div>
-          )}
-        </div>
-
         <div className="tradeoff-curve">
-          <div className="tradeoff-curve-title">Net TVPI Across Gross MOIC Outcomes</div>
+          <div className="tradeoff-curve-head">
+            <div>
+              <div className="tradeoff-curve-kicker">Net TVPI Comparison</div>
+              <div className="tradeoff-curve-title">Where The Two Fee Structures Cross</div>
+              <div className="tradeoff-curve-subtitle">X-axis shows gross fund return before fees and carry.</div>
+            </div>
+            <div className="tvpi-crossover-pill">
+              {tvpiCrossoverResult.hasCrossover ? (
+                <>
+                  <div className="tvpi-crossover-pill-label">TVPI crossover</div>
+                  <div className="tvpi-crossover-pill-value">{tvpiCrossoverMultiple.toFixed(2)}x gross MOIC</div>
+                </>
+              ) : (
+                <>
+                  <div className="tvpi-crossover-pill-label">TVPI crossover</div>
+                  <div className="tvpi-crossover-pill-value">No crossover in range</div>
+                </>
+              )}
+            </div>
+          </div>
           <ComparisonChart
             seriesA={curveData.twoTwentyTVPI}
             seriesB={curveData.oneThirtyTVPI}
@@ -6898,12 +7475,17 @@ const FeeTradeoffSection = ({ globalGrossMultiple, onGrossMultipleChange } = {})
             colorA="#1B2A4A"
             colorB="#B5473A"
             height={220}
+            xAxisLabel="Gross Fund Return Before Fees And Carry (MOIC)"
             marker={tvpiCrossoverResult.hasCrossover ? {
               index: tvpiCrossoverIndex,
               label: `TVPI Cross ${tvpiCrossoverMultiple.toFixed(2)}x`,
               color: '#C9A84C'
             } : null}
           />
+          <p className="tradeoff-curve-note">
+            At the crossover point, both structures land on roughly the same net TVPI. To the left, lower fees tend to help more.
+            To the right, higher carry can give back that advantage.
+          </p>
         </div>
 
         <p className="assumption-note">
@@ -11488,98 +12070,47 @@ const CustomTermsModelSection = () => {
 export default function App() {
   const [globalGrossMultiple, setGlobalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
   const [globalDeploymentRate, setGlobalDeploymentRate] = useState(1.0);
-  const [compactControls, setCompactControls] = useState(true);
-  const [activePage, setActivePage] = useState(() => {
-    if (typeof window === 'undefined') return 'economics';
-    const hash = window.location.hash.replace('#', '').toLowerCase();
-    if (hash.startsWith('benchmark') || BENCHMARK_SECTION_LINKS.some((section) => section.id === hash)) {
-      return 'benchmarks';
-    }
-    if (hash.startsWith('custom-terms') || CUSTOM_TERMS_SECTION_LINKS.some((section) => section.id === hash)) {
-      return 'custom-terms';
-    }
-    if (hash.startsWith('portfolio') || PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash)) {
-      return 'portfolio';
-    }
-    if (hash.startsWith('asia') || ASIA_SECTION_LINKS.some((section) => section.id === hash)) {
-      return 'asia';
-    }
-    if (hash.startsWith('environment') || ENVIRONMENT_SECTION_LINKS.some((section) => section.id === hash)) {
-      return 'environment';
-    }
-    return hash.startsWith('liquidity') ? 'liquidity' : 'economics';
-  });
+  const compactControls = true;
+  const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState(false);
+  const [disclaimerReady, setDisclaimerReady] = useState(false);
 
   useEffect(() => {
-    const syncPageFromHash = () => {
-      const hash = window.location.hash.replace('#', '').toLowerCase();
-      if (BENCHMARK_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('benchmark')) {
-        setActivePage('benchmarks');
-      } else if (CUSTOM_TERMS_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('custom-terms')) {
-        setActivePage('custom-terms');
-      } else if (PORTFOLIO_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('portfolio')) {
-        setActivePage('portfolio');
-      } else if (ASIA_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('asia')) {
-        setActivePage('asia');
-      } else if (ENVIRONMENT_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('environment')) {
-        setActivePage('environment');
-      } else if (LIQUIDITY_SECTION_LINKS.some((section) => section.id === hash) || hash.startsWith('liquidity')) {
-        setActivePage('liquidity');
-      } else {
-        setActivePage('economics');
-      }
-    };
-
-    syncPageFromHash();
-    window.addEventListener('hashchange', syncPageFromHash);
-    return () => window.removeEventListener('hashchange', syncPageFromHash);
+    if (typeof window === 'undefined') return;
+    const validHashes = new Set(SECTION_LINKS.map((section) => section.id));
+    const hash = window.location.hash.replace('#', '').toLowerCase();
+    if (hash && !validHashes.has(hash)) {
+      window.location.hash = SECTION_LINKS[0].id;
+    }
   }, []);
 
-  const navigateToPage = (pageKey) => {
-    const targetPage = pageKey === 'liquidity'
-      ? 'liquidity'
-      : pageKey === 'portfolio'
-        ? 'portfolio'
-      : pageKey === 'asia'
-        ? 'asia'
-      : pageKey === 'environment'
-        ? 'environment'
-      : pageKey === 'custom-terms'
-        ? 'custom-terms'
-      : pageKey === 'benchmarks'
-        ? 'benchmarks'
-        : 'economics';
-    setActivePage(targetPage);
-    const firstSectionId = targetPage === 'liquidity'
-      ? LIQUIDITY_SECTION_LINKS[0].id
-      : targetPage === 'portfolio'
-        ? PORTFOLIO_SECTION_LINKS[0].id
-      : targetPage === 'asia'
-        ? ASIA_SECTION_LINKS[0].id
-      : targetPage === 'environment'
-        ? ENVIRONMENT_SECTION_LINKS[0].id
-      : targetPage === 'custom-terms'
-        ? CUSTOM_TERMS_SECTION_LINKS[0].id
-      : targetPage === 'benchmarks'
-        ? BENCHMARK_SECTION_LINKS[0].id
-        : SECTION_LINKS[0].id;
-    window.location.hash = firstSectionId;
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  useEffect(() => {
+    let acknowledged = false;
+    try {
+      acknowledged = window.localStorage.getItem(DISCLAIMER_STORAGE_KEY) === 'true';
+    } catch (_) {
+      acknowledged = false;
+    }
+    setHasAcceptedDisclaimer(acknowledged);
+    setDisclaimerReady(true);
+  }, []);
 
-  const activeSections = activePage === 'liquidity'
-    ? LIQUIDITY_SECTION_LINKS
-    : activePage === 'portfolio'
-      ? PORTFOLIO_SECTION_LINKS
-    : activePage === 'asia'
-      ? ASIA_SECTION_LINKS
-    : activePage === 'environment'
-      ? ENVIRONMENT_SECTION_LINKS
-    : activePage === 'custom-terms'
-      ? CUSTOM_TERMS_SECTION_LINKS
-    : activePage === 'benchmarks'
-      ? BENCHMARK_SECTION_LINKS
-      : SECTION_LINKS;
+  useEffect(() => {
+    if (!disclaimerReady) return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = hasAcceptedDisclaimer ? previousOverflow : 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [disclaimerReady, hasAcceptedDisclaimer]);
+
+  const acknowledgeDisclaimer = () => {
+    setHasAcceptedDisclaimer(true);
+    try {
+      window.localStorage.setItem(DISCLAIMER_STORAGE_KEY, 'true');
+    } catch (_) {
+      // Ignore storage failures and keep the session-local state.
+    }
+  };
 
   return (
     <div className={`pe-fees-app ${compactControls ? 'compact-controls' : ''}`}>
@@ -11739,23 +12270,30 @@ export default function App() {
           gap: 24px;
         }
 
-        .header-logo {
+        .header-brand-lockup {
           display: flex;
           align-items: center;
           gap: 14px;
-          flex-shrink: 0;
         }
 
-        .header-product-tag {
-          border: 1px solid rgba(255, 255, 255, 0.38);
-          color: rgba(255, 255, 255, 0.92);
+        .header-brand-stack {
+          display: grid;
+          gap: 2px;
+        }
+
+        .header-kicker {
           font-size: 10px;
-          font-weight: 600;
-          letter-spacing: 1.2px;
+          letter-spacing: 1.4px;
           text-transform: uppercase;
-          border-radius: 999px;
-          padding: 4px 10px;
-          line-height: 1;
+          color: rgba(255, 255, 255, 0.66);
+          font-weight: 600;
+        }
+
+        .header-title {
+          font-size: 17px;
+          color: #ffffff;
+          font-weight: 500;
+          letter-spacing: 0.2px;
         }
 
         .header-actions {
@@ -11767,92 +12305,39 @@ export default function App() {
         }
 
         .header-pathway-mark {
-          height: 34px;
+          height: 40px;
           width: auto;
           display: block;
-          filter: brightness(0) invert(1);
-          opacity: 0.98;
+          opacity: 1;
         }
 
-        .header-menu {
-          position: relative;
+        .header-note {
+          font-size: 12px;
+          color: rgba(255, 255, 255, 0.78);
         }
 
-        .header-menu-button {
-          width: 38px;
-          height: 38px;
-          border: 1px solid rgba(255, 255, 255, 0.52);
-          background: rgba(255, 255, 255, 0.08);
-          border-radius: 8px;
+        .header-cta {
           display: inline-flex;
-          flex-direction: column;
-          justify-content: center;
           align-items: center;
-          gap: 4px;
-          cursor: pointer;
-          transition: all 0.2s ease;
-        }
-
-        .header-menu-button:hover {
-          background: rgba(255, 255, 255, 0.2);
-          border-color: rgba(255, 255, 255, 0.82);
-        }
-
-        .header-menu-button span {
-          width: 16px;
-          height: 1.6px;
+          justify-content: center;
+          min-height: 40px;
+          padding: 0 16px;
           border-radius: 999px;
-          background: #FFFFFF;
-          display: block;
-        }
-
-        .header-menu-panel {
-          position: absolute;
-          top: calc(100% + 8px);
-          right: 0;
-          min-width: 210px;
-          background: #FFFFFF;
-          border: 1px solid #C5D1E3;
-          border-radius: 10px;
-          box-shadow: 0 12px 22px rgba(15, 27, 51, 0.22);
-          padding: 6px;
-          z-index: 10;
-        }
-
-        .header-menu-item {
-          display: block;
-          width: 100%;
-          text-align: left;
-          border: 0;
-          background: transparent;
-          color: #1B2A4A;
-          font-family: 'Helvetica Neue', sans-serif;
-          font-size: 11px;
-          font-weight: 600;
-          letter-spacing: 0.4px;
-          text-transform: uppercase;
-          padding: 10px 12px;
-          border-radius: 7px;
-          cursor: pointer;
-        }
-
-        .header-menu-link {
+          background: #C9A84C;
+          color: #0F1B33;
           text-decoration: none;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          box-shadow: 0 10px 20px rgba(201, 168, 76, 0.28);
+          transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
         }
 
-        .header-menu-item:hover {
-          background: #EEF3FB;
-        }
-
-        .header-menu-item.active {
-          background: #EEF3FB;
-          color: #10213F;
-        }
-
-        .header-menu-divider {
-          height: 1px;
-          margin: 6px 4px;
-          background: #DCE3EE;
+        .header-cta:hover {
+          transform: translateY(-1px);
+          background: #D7B968;
+          box-shadow: 0 14px 24px rgba(201, 168, 76, 0.34);
         }
 
         @media (max-width: 980px) {
@@ -11865,18 +12350,26 @@ export default function App() {
             gap: 14px;
           }
 
-          .header-product-tag {
-            font-size: 9px;
-            padding: 4px 8px;
+          .header-brand-lockup {
+            min-width: 0;
           }
 
           .header-pathway-mark {
-            height: 26px;
+            height: 34px;
           }
 
-          .header-menu-button {
-            width: 34px;
-            height: 34px;
+          .header-title {
+            font-size: 15px;
+          }
+
+          .header-note {
+            display: none;
+          }
+
+          .header-cta {
+            min-height: 36px;
+            padding: 0 12px;
+            font-size: 11px;
           }
 
           .sticky-contact-cta {
@@ -12322,25 +12815,91 @@ export default function App() {
           font-size: clamp(28px, 5vw, 48px);
           font-weight: 400;
           color: #1B2A4A;
+          max-width: 1100px;
+          margin-left: auto;
+          margin-right: auto;
           margin-bottom: 16px;
           letter-spacing: -0.5px;
+          text-wrap: balance;
         }
 
         .hero-subtitle {
-          font-size: clamp(20px, 2.4vw, 28px);
+          font-size: clamp(18px, 2.1vw, 24px);
           font-weight: 400;
           color: #9A9690;
-          max-width: 980px;
+          max-width: 760px;
           margin: 0 auto 22px;
           line-height: 1.35;
+          text-wrap: balance;
         }
 
         .hero-purpose-note {
-          max-width: 860px;
+          max-width: 720px;
           margin: -4px auto 16px;
-          font-size: 16px;
+          font-size: 15px;
           color: #4F5B72;
           line-height: 1.55;
+          text-wrap: balance;
+        }
+
+        .hero-action-bar {
+          display: flex;
+          justify-content: center;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin: 0 auto 14px;
+        }
+
+        .hero-primary-cta,
+        .hero-secondary-cta {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 44px;
+          padding: 0 18px;
+          border-radius: 999px;
+          text-decoration: none;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+        }
+
+        .hero-primary-cta {
+          background: #1B2A4A;
+          color: #ffffff;
+          box-shadow: 0 10px 24px rgba(27, 42, 74, 0.16);
+        }
+
+        .hero-primary-cta:hover {
+          transform: translateY(-1px);
+          background: #10213F;
+        }
+
+        .hero-secondary-cta {
+          border: 1px solid #C9D4E4;
+          background: rgba(255, 255, 255, 0.82);
+          color: #1B2A4A;
+        }
+
+        .hero-secondary-cta:hover {
+          transform: translateY(-1px);
+          border-color: #1B2A4A;
+          background: #ffffff;
+        }
+
+        .hero-trust-strip {
+          margin: 0 auto 18px;
+          padding: 9px 14px;
+          max-width: 620px;
+          border: 1px solid #D9E1EC;
+          border-radius: 999px;
+          background: rgba(255, 255, 255, 0.78);
+          color: #5A667D;
+          font-size: 12px;
+          letter-spacing: 0.2px;
         }
 
         .hero-graphboard {
@@ -12632,6 +13191,181 @@ export default function App() {
         .block-subtitle {
           font-size: 13px;
           color: #9A9690;
+        }
+
+        .actual-spread-block {
+          background:
+            radial-gradient(circle at 10% 10%, rgba(27, 42, 74, 0.08), transparent 34%),
+            radial-gradient(circle at 88% 16%, rgba(201, 168, 76, 0.12), transparent 28%),
+            linear-gradient(180deg, #FFFFFF 0%, #F9FBFE 100%);
+        }
+
+        .actual-spread-intro {
+          max-width: 760px;
+          color: #44526B;
+        }
+
+        .actual-spread-intro.compact {
+          margin-top: -4px;
+          font-size: 15px;
+        }
+
+        .actual-spread-metrics {
+          margin: 10px 0 14px;
+        }
+
+        .actual-spread-metrics .metric-card {
+          background: rgba(255, 255, 255, 0.86);
+          border: 1px solid #DBE3EE;
+          box-shadow: 0 8px 18px rgba(19, 35, 58, 0.05);
+        }
+
+        .actual-spread-chart-shell {
+          margin: 4px 0 6px;
+        }
+
+        .actual-spread-chart-shell::before {
+          content: 'Scatter = anonymized Pathway-observed funds | dotted line = median observed net by gross band';
+          display: block;
+          margin-bottom: 8px;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          color: #5B6983;
+        }
+
+        .actual-spread-chart-wrap {
+          border: 1px solid #D7E0EE;
+          border-radius: 14px;
+          overflow: hidden;
+          background:
+            radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.95), rgba(247, 250, 254, 0.96)),
+            linear-gradient(180deg, #FBFCFF 0%, #F5F8FC 100%);
+          box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.75);
+        }
+
+        .actual-spread-chart-svg {
+          width: 100%;
+          height: auto;
+          display: block;
+        }
+
+        .actual-spread-axis-label {
+          fill: #6A7588;
+          font-size: 11px;
+          font-family: 'Helvetica Neue', sans-serif;
+        }
+
+        .actual-spread-axis-title {
+          fill: #415574;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          font-family: 'Helvetica Neue', sans-serif;
+        }
+
+        .actual-spread-callout-kicker {
+          fill: #7B6222;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          font-family: 'Helvetica Neue', sans-serif;
+        }
+
+        .actual-spread-callout-title {
+          fill: #1B2A4A;
+          font-size: 13px;
+          font-weight: 700;
+          font-family: 'Helvetica Neue', sans-serif;
+        }
+
+        .actual-spread-callout-copy {
+          fill: #55627B;
+          font-size: 11px;
+          font-family: 'Helvetica Neue', sans-serif;
+        }
+
+        .actual-spread-hover-readout {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-height: 38px;
+          border: 1px solid #DCE3EE;
+          border-radius: 10px;
+          background: #FBFCFF;
+          padding: 8px 11px;
+          margin-top: 8px;
+          font-size: 12px;
+          color: #45526A;
+          flex-wrap: wrap;
+        }
+
+        .actual-spread-hover-label {
+          font-weight: 700;
+          color: #1B2A4A;
+        }
+
+        .actual-spread-hover-sep {
+          color: #9AA4B8;
+          font-size: 11px;
+        }
+
+        .actual-spread-trend-shell {
+          margin-top: 14px;
+          border: 1px solid #D7E0EE;
+          border-radius: 14px;
+          background: #FCFDFF;
+          padding: 12px 12px 10px;
+        }
+
+        .actual-spread-trend-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: baseline;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 6px;
+        }
+
+        .actual-spread-trend-title {
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          color: #1B2A4A;
+        }
+
+        .actual-spread-trend-copy {
+          font-size: 12px;
+          color: #5F6C83;
+        }
+
+        .actual-spread-trend-wrap {
+          width: 100%;
+        }
+
+        .actual-spread-trend-svg {
+          width: 100%;
+          height: auto;
+          display: block;
+        }
+
+        .actual-spread-trend-value {
+          fill: #8E3F34;
+          font-size: 10px;
+          font-weight: 700;
+          font-family: 'Helvetica Neue', sans-serif;
+        }
+
+        .actual-spread-outlier-note,
+        .actual-spread-footnote {
+          margin: 10px 0 0;
+          font-size: 12px;
+          line-height: 1.55;
+          color: #5C6679;
         }
 
         .liquidity-callout-grid {
@@ -13332,25 +14066,37 @@ export default function App() {
         }
 
         .pathway-inline-cta {
-          margin: 12px 0 2px;
+          margin: 16px 0 4px;
           border: 1px solid #D6DFEC;
           border-radius: 10px;
           background: linear-gradient(180deg, #FBFDFF 0%, #F4F8FD 100%);
-          padding: 10px 12px;
+          padding: 12px 14px;
           font-size: 13px;
           color: #44526B;
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
         }
 
         .pathway-inline-cta a {
-          color: #1B2A4A;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 36px;
+          padding: 0 14px;
+          border-radius: 999px;
+          background: #1B2A4A;
+          color: #ffffff;
           text-decoration: none;
-          border-bottom: 1px solid rgba(27, 42, 74, 0.35);
           font-weight: 600;
+          border: 1px solid #1B2A4A;
+          white-space: nowrap;
         }
 
         .pathway-inline-cta a:hover {
-          color: #A8892E;
-          border-bottom-color: rgba(168, 137, 46, 0.6);
+          background: #10213F;
         }
 
         .portfolio-commentary-block {
@@ -15461,38 +16207,119 @@ export default function App() {
         .structure-comparison {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 12px;
-          margin: 24px 0;
+          gap: 10px;
+          margin: 16px 0 14px;
         }
 
         .structure-card {
-          background: #E8E6E1;
+          background: linear-gradient(180deg, #FBFCFF 0%, #F4F7FC 100%);
           border: 2px solid;
-          border-radius: 8px;
-          padding: 16px;
+          border-radius: 10px;
+          padding: 12px 14px;
           text-align: center;
         }
 
         .structure-label {
           font-family: 'Helvetica Neue', sans-serif;
-          font-size: 14px;
-          font-weight: 500;
-          margin-bottom: 8px;
+          font-size: 12px;
+          font-weight: 600;
+          margin-bottom: 6px;
         }
 
         .structure-net {
           font-family: 'SF Mono', 'Monaco', monospace;
-          font-size: 24px;
+          font-size: 20px;
           color: #1B2A4A;
-          margin-bottom: 8px;
+          margin-bottom: 4px;
+          line-height: 1.15;
+        }
+
+        .structure-secondary {
+          font-size: 12px;
+          color: #4A4641;
+          margin-bottom: 6px;
         }
 
         .structure-breakdown {
           display: flex;
-          flex-direction: column;
-          gap: 2px;
+          justify-content: center;
+          flex-wrap: wrap;
+          gap: 4px 12px;
           font-size: 11px;
           color: #9A9690;
+        }
+
+        .tradeoff-curve {
+          margin-top: 10px;
+          border: 1px solid #DCE3EE;
+          border-radius: 12px;
+          background: linear-gradient(180deg, #FCFDFF 0%, #F5F8FC 100%);
+          padding: 14px 16px 10px;
+        }
+
+        .tradeoff-curve-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 14px;
+          margin-bottom: 6px;
+        }
+
+        .tradeoff-curve-kicker {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          color: #6E7688;
+          margin-bottom: 4px;
+        }
+
+        .tradeoff-curve-title {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 20px;
+          line-height: 1.15;
+          color: #1B2A4A;
+          margin: 0;
+        }
+
+        .tradeoff-curve-subtitle {
+          margin-top: 4px;
+          font-size: 12px;
+          color: #5B657A;
+          line-height: 1.45;
+        }
+
+        .tradeoff-curve-note {
+          margin: 2px 0 0;
+          font-size: 12px;
+          color: #5B657A;
+          line-height: 1.5;
+        }
+
+        .tvpi-crossover-pill {
+          min-width: 190px;
+          padding: 10px 12px;
+          border-radius: 10px;
+          border: 1px solid rgba(201, 168, 76, 0.45);
+          background: linear-gradient(180deg, #FFFDF6 0%, #FAF5E7 100%);
+        }
+
+        .tvpi-crossover-pill-label {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 10px;
+          font-weight: 600;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          color: #8A6D1F;
+          margin-bottom: 4px;
+        }
+
+        .tvpi-crossover-pill-value {
+          font-family: 'SF Mono', 'Monaco', monospace;
+          font-size: 14px;
+          color: #1B2A4A;
+          line-height: 1.25;
         }
 
         .underinvesting-charts {
@@ -15681,6 +16508,66 @@ export default function App() {
           font-size: 12px;
           color: #6B7283;
           line-height: 1.45;
+        }
+
+        .loc-mechanics-explainer {
+          margin-top: 14px;
+          border: 1px solid #DCE3EE;
+          border-radius: 12px;
+          background: linear-gradient(180deg, #FBFCFF 0%, #F6F9FD 100%);
+          padding: 14px;
+        }
+
+        .loc-mechanics-title {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #415574;
+          margin-bottom: 10px;
+        }
+
+        .loc-mechanics-grid {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 12px;
+        }
+
+        .loc-mechanics-card {
+          border: 1px solid #D7E0EE;
+          border-radius: 10px;
+          background: #FFFFFF;
+          padding: 12px;
+        }
+
+        .loc-mechanics-card.positive {
+          border-left: 4px solid #2D6B4F;
+        }
+
+        .loc-mechanics-card.negative {
+          border-left: 4px solid #B5473A;
+        }
+
+        .loc-mechanics-card-title {
+          font-size: 13px;
+          font-weight: 700;
+          color: #1B2A4A;
+          margin-bottom: 6px;
+        }
+
+        .loc-mechanics-card p {
+          margin: 0;
+          font-size: 13px;
+          line-height: 1.55;
+          color: #4F5B72;
+        }
+
+        .loc-mechanics-summary {
+          margin: 10px 0 0;
+          font-size: 13px;
+          line-height: 1.55;
+          color: #45526A;
         }
 
         .loc-outcome-charts {
@@ -15914,6 +16801,124 @@ export default function App() {
           margin: 0;
         }
 
+        .compliance-footer {
+          border-top: 1px solid #DCE3EE;
+          background: #F7F9FC;
+          padding: 18px 24px 26px;
+        }
+
+        .compliance-footer-inner {
+          max-width: 1080px;
+          margin: 0 auto;
+          display: grid;
+          gap: 8px;
+        }
+
+        .compliance-footer-title {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 1.2px;
+          text-transform: uppercase;
+          color: #1B2A4A;
+        }
+
+        .compliance-footer p {
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.55;
+          color: #5C6679;
+        }
+
+        .compliance-modal-backdrop {
+          position: fixed;
+          inset: 0;
+          z-index: 220;
+          background: rgba(9, 18, 34, 0.62);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 20px;
+        }
+
+        .compliance-modal {
+          width: min(640px, 100%);
+          border-radius: 16px;
+          background: #ffffff;
+          box-shadow: 0 24px 60px rgba(8, 18, 35, 0.32);
+          border: 1px solid #D9E2EE;
+          padding: 22px;
+        }
+
+        .compliance-modal-kicker {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 1.2px;
+          text-transform: uppercase;
+          color: #A8892E;
+          margin-bottom: 10px;
+        }
+
+        .compliance-modal h2 {
+          font-size: clamp(24px, 4vw, 32px);
+          line-height: 1.15;
+          color: #1B2A4A;
+          margin-bottom: 14px;
+        }
+
+        .compliance-modal-copy {
+          display: grid;
+          gap: 10px;
+          color: #4F5B72;
+          font-size: 15px;
+          line-height: 1.6;
+        }
+
+        .compliance-modal-meta {
+          margin-top: 14px;
+          font-size: 12px;
+          color: #6A7588;
+          letter-spacing: 0.3px;
+        }
+
+        .compliance-modal-actions {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          gap: 12px;
+          flex-wrap: wrap;
+          margin-top: 20px;
+        }
+
+        .compliance-modal-link {
+          color: #1B2A4A;
+          font-weight: 600;
+          text-decoration: none;
+          border-bottom: 1px solid rgba(27, 42, 74, 0.35);
+        }
+
+        .compliance-modal-link:hover {
+          color: #A8892E;
+          border-bottom-color: rgba(168, 137, 46, 0.6);
+        }
+
+        .compliance-modal-button {
+          min-height: 42px;
+          padding: 0 16px;
+          border: 0;
+          border-radius: 999px;
+          background: #1B2A4A;
+          color: #ffffff;
+          font-size: 12px;
+          font-weight: 700;
+          letter-spacing: 0.6px;
+          text-transform: uppercase;
+          cursor: pointer;
+        }
+
+        .compliance-modal-button:hover {
+          background: #10213F;
+        }
+
         .sources-footer {
           margin-top: 26px;
           padding-top: 18px;
@@ -15965,6 +16970,10 @@ export default function App() {
           }
 
           .loc-outcome-charts {
+            grid-template-columns: 1fr;
+          }
+
+          .loc-mechanics-grid {
             grid-template-columns: 1fr;
           }
 
@@ -16075,8 +17084,62 @@ export default function App() {
         }
 
         @media (max-width: 600px) {
+          .header-content {
+            align-items: flex-start;
+            flex-direction: column;
+            justify-content: center;
+            padding: 10px 0;
+          }
+
+          .header-actions {
+            width: 100%;
+            justify-content: space-between;
+          }
+
+          .hero-action-bar {
+            flex-direction: column;
+          }
+
+          .hero-primary-cta,
+          .hero-secondary-cta {
+            width: 100%;
+          }
+
+          .hero-trust-strip {
+            border-radius: 14px;
+          }
+
+          .pathway-inline-cta {
+            align-items: flex-start;
+          }
+
+          .pathway-inline-cta a {
+            width: 100%;
+          }
+
+          .compliance-modal {
+            padding: 18px;
+          }
+
+          .compliance-modal-actions {
+            align-items: stretch;
+          }
+
+          .compliance-modal-button {
+            width: 100%;
+          }
+
           .structure-comparison {
             grid-template-columns: 1fr;
+          }
+
+          .tradeoff-curve-head {
+            flex-direction: column;
+          }
+
+          .tvpi-crossover-pill {
+            min-width: 0;
+            width: 100%;
           }
 
           .comparison-metrics {
@@ -16227,116 +17290,56 @@ export default function App() {
         }
       `}</style>
 
-      <Header
-        compactControls={compactControls}
-        onToggleCompactControls={() => setCompactControls((prev) => !prev)}
-        activePage={activePage}
-        onNavigatePage={navigateToPage}
-      />
+      <Header />
       <div className="app-shell">
-        <SideNav sections={activeSections} />
+        <SideNav sections={SECTION_LINKS} />
         <main className="app-main">
-          {activePage === 'economics' ? (
-            <>
-              <HeroSection />
-              <IntroSection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-              />
-              <ManagementFeeSection />
-              <ExpensesSection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-                globalDeploymentRate={globalDeploymentRate}
-                onDeploymentRateChange={setGlobalDeploymentRate}
-              />
-              <CarrySection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-              />
-              <WaterfallComparisonSection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-              />
-              <UnderinvestingSection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-                globalDeploymentRate={globalDeploymentRate}
-                onDeploymentRateChange={setGlobalDeploymentRate}
-              />
-              <FeeTradeoffSection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-              />
-              <QuarterlyScheduleSection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-                globalDeploymentRate={globalDeploymentRate}
-                onDeploymentRateChange={setGlobalDeploymentRate}
-              />
-              <ConclusionSection />
-            </>
-          ) : activePage === 'liquidity' ? (
-            <>
-              <LiquidityHeroSection />
-              <LiquidityNormalCourseSection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-              />
-              <LiquiditySecondariesSection
-                globalGrossMultiple={globalGrossMultiple}
-              />
-              <LiquidityToolkitSection />
-              <LiquidityToBeBuiltSection />
-            </>
-          ) : activePage === 'portfolio' ? (
-            <>
-              <PortfolioHeroSection />
-              <PortfolioLevelSetSection />
-              <PortfolioSingleFundSection />
-              <PortfolioLayeringSection
-                globalGrossMultiple={globalGrossMultiple}
-                onGrossMultipleChange={setGlobalGrossMultiple}
-              />
-              <PortfolioFutureForecastSection />
-              <PortfolioStrategyCurvesSection />
-              <PortfolioTypesSection />
-              <PortfolioTargetingSection />
-              <PortfolioAdjustingExposureSection />
-              <PortfolioRiffsSection />
-              <PortfolioSourcesFooter />
-            </>
-          ) : activePage === 'asia' ? (
-            <>
-              <AsiaHeroSection />
-              <AsiaWhyNowSection />
-              <AsiaMarketStructureSection />
-              <AsiaDueDiligenceSection />
-              <AsiaPortfolioDesignSection />
-              <AsiaExecutionGovernanceSection />
-              <AsiaRedFlagsSection />
-              <AsiaPlaybookSection />
-            </>
-          ) : activePage === 'custom-terms' ? (
-            <>
-              <CustomTermsHeroSection />
-              <CustomTermsModelSection />
-            </>
-          ) : activePage === 'benchmarks' ? (
-            <BenchmarkHubPage />
-          ) : (
-            <>
-              <EnvironmentHeroSection />
-              <EnvironmentExplorerSection />
-              <EnvironmentThemesSection />
-              <EnvironmentDeltaLabSection />
-              <EnvironmentConversionSection />
-              <EnvironmentBuildPlanSection />
-            </>
-          )}
+          <>
+            <HeroSection />
+            <IntroSection
+              globalGrossMultiple={globalGrossMultiple}
+              onGrossMultipleChange={setGlobalGrossMultiple}
+            />
+            <ManagementFeeSection />
+            <ExpensesSection
+              globalGrossMultiple={globalGrossMultiple}
+              onGrossMultipleChange={setGlobalGrossMultiple}
+              globalDeploymentRate={globalDeploymentRate}
+              onDeploymentRateChange={setGlobalDeploymentRate}
+            />
+            <CarrySection
+              globalGrossMultiple={globalGrossMultiple}
+              onGrossMultipleChange={setGlobalGrossMultiple}
+            />
+            <WaterfallComparisonSection
+              globalGrossMultiple={globalGrossMultiple}
+              onGrossMultipleChange={setGlobalGrossMultiple}
+            />
+            <UnderinvestingSection
+              globalGrossMultiple={globalGrossMultiple}
+              onGrossMultipleChange={setGlobalGrossMultiple}
+              globalDeploymentRate={globalDeploymentRate}
+              onDeploymentRateChange={setGlobalDeploymentRate}
+            />
+            <FeeTradeoffSection
+              globalGrossMultiple={globalGrossMultiple}
+              onGrossMultipleChange={setGlobalGrossMultiple}
+            />
+            <QuarterlyScheduleSection
+              globalGrossMultiple={globalGrossMultiple}
+              onGrossMultipleChange={setGlobalGrossMultiple}
+              globalDeploymentRate={globalDeploymentRate}
+              onDeploymentRateChange={setGlobalDeploymentRate}
+            />
+            <ConclusionSection />
+          </>
         </main>
       </div>
-      <StickyContactPrompt activePage={activePage} />
+      <ComplianceFooter />
+      <StickyContactPrompt />
+      {disclaimerReady && !hasAcceptedDisclaimer ? (
+        <ComplianceModal onAcknowledge={acknowledgeDisclaimer} />
+      ) : null}
     </div>
   );
 }
