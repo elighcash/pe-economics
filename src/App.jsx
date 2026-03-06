@@ -3177,7 +3177,7 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
     if (!isInView) return undefined;
     let rafId = 0;
     const start = performance.now();
-    const duration = 3600;
+    const duration = 7200;
     const animate = (timestamp) => {
       const elapsed = Math.max(0, timestamp - start);
       const progress = clamp(elapsed / duration, 0, 1);
