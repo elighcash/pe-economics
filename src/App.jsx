@@ -748,7 +748,17 @@ const WaterfallChart = ({ data, height = 280 }) => {
   return <canvas ref={canvasRef} className="waterfall-canvas" style={{ width: '100%', height }} />;
 };
 
-const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
+const TimelineChart = ({
+  data,
+  height = 200,
+  showCumulative = false,
+  yMin = null,
+  yMax = null,
+  yFormatter = (v) => formatCurrency(v, 0),
+  compareData = null,
+  compareColor = '#7A869D',
+  compareDashed = true
+}) => {
   const canvasRef = useRef(null);
 
   useEffect(() => {
@@ -769,10 +779,16 @@ const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
     const chartWidth = width - padding.left - padding.right;
     const chartHeight = h - padding.top - padding.bottom;
 
-    const values = showCumulative ? data.map(d => d.cumulative) : data.map(d => d.value);
-    const maxValue = Math.max(...values) * 1.1;
-    const minValue = Math.min(0, ...values);
-    const range = maxValue - minValue;
+    const primaryValues = showCumulative ? data.map(d => d.cumulative) : data.map(d => d.value);
+    const secondaryValues = compareData
+      ? (showCumulative ? compareData.map(d => d.cumulative) : compareData.map(d => d.value))
+      : [];
+    const values = [...primaryValues, ...secondaryValues];
+    const computedMaxValue = Math.max(...values) * 1.1;
+    const computedMinValue = Math.min(0, ...values);
+    const maxValue = Number.isFinite(yMax) ? yMax : computedMaxValue;
+    const minValue = Number.isFinite(yMin) ? yMin : computedMinValue;
+    const range = Math.max(1e-9, maxValue - minValue);
 
     // Draw grid
     ctx.strokeStyle = '#222';
@@ -788,7 +804,23 @@ const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
       ctx.fillStyle = '#9A9690';
       ctx.font = '10px system-ui';
       ctx.textAlign = 'right';
-      ctx.fillText(formatCurrency(val, 0), padding.left - 8, y + 4);
+      ctx.fillText(yFormatter(val), padding.left - 8, y + 4);
+    }
+
+    if (compareData && compareData.length > 1) {
+      ctx.strokeStyle = compareColor;
+      ctx.lineWidth = 1.6;
+      if (compareDashed) ctx.setLineDash([6, 5]);
+      ctx.beginPath();
+      compareData.forEach((d, i) => {
+        const x = padding.left + (i / (compareData.length - 1)) * chartWidth;
+        const val = showCumulative ? d.cumulative : d.value;
+        const y = padding.top + ((maxValue - val) / range) * chartHeight;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
 
     // Draw line
@@ -821,7 +853,7 @@ const TimelineChart = ({ data, height = 200, showCumulative = false }) => {
       ctx.textAlign = 'center';
       ctx.fillText(d.label, x, h - padding.bottom + 20);
     });
-  }, [data, showCumulative]);
+  }, [data, showCumulative, yMin, yMax, yFormatter, compareData, compareColor, compareDashed]);
 
   return <canvas ref={canvasRef} className="timeline-canvas" style={{ width: '100%', height }} />;
 };
@@ -5300,6 +5332,7 @@ const ManagementFeeSection = () => {
   const [fundLife, setFundLife] = useState(DEFAULTS.fundLife);
   const [hasRateStepDown, setHasRateStepDown] = useState(DEFAULTS.hasRateStepDown);
   const [postInvestmentBasis, setPostInvestmentBasis] = useState(DEFAULTS.postInvestmentBasis); // 'committed' or 'remaining'
+  const [feeChartView, setFeeChartView] = useState('lp_pct');
   const [showAssumptions, setShowAssumptions] = useState(false);
 
   useEffect(() => {
@@ -5316,6 +5349,7 @@ const ManagementFeeSection = () => {
     setFundLife(DEFAULTS.fundLife);
     setHasRateStepDown(DEFAULTS.hasRateStepDown);
     setPostInvestmentBasis(DEFAULTS.postInvestmentBasis);
+    setFeeChartView('lp_pct');
     setShowAssumptions(false);
   };
 
@@ -5396,6 +5430,55 @@ const ManagementFeeSection = () => {
     return data;
   }, [fundSize, feeRate, investmentPeriod, fundLife, hasRateStepDown, postInvestmentBasis]);
 
+  const baselineFeeData = useMemo(() => {
+    const data = [];
+    let cumulativeFees = 0;
+    const DEPLOYMENT_TARGET = 0.94;
+    const INVESTMENT_LAG = 0.025;
+    const REALIZATION_START_YEAR = 5;
+    const REALIZATION_FRACTION = 0.95;
+
+    for (let year = 1; year <= fundLife; year++) {
+      const deploymentProgress = Math.min(1, year / DEFAULTS.investmentPeriod);
+      const calledPct = deploymentProgress * deploymentProgress * (3 - 2 * deploymentProgress);
+      const calledCapital = Math.min(fundSize, fundSize * calledPct);
+      const investedCapital = Math.min(
+        fundSize * DEPLOYMENT_TARGET,
+        Math.max(0, calledCapital - fundSize * INVESTMENT_LAG)
+      );
+
+      let cumulativeRealizations = 0;
+      if (year >= REALIZATION_START_YEAR) {
+        const denom = Math.max(1, fundLife - REALIZATION_START_YEAR + 1);
+        const realizationProgress = Math.min(1, (year - REALIZATION_START_YEAR + 1) / denom);
+        cumulativeRealizations = investedCapital * Math.pow(realizationProgress, 1.35) * REALIZATION_FRACTION;
+      }
+
+      const remainingCostBasis = Math.max(0, investedCapital - cumulativeRealizations);
+      let feeBasis;
+      let rate;
+
+      if (year <= DEFAULTS.investmentPeriod) {
+        feeBasis = fundSize;
+        rate = DEFAULTS.feeRate;
+      } else {
+        rate = DEFAULTS.hasRateStepDown ? DEFAULTS.feeRate * 0.75 : DEFAULTS.feeRate;
+        feeBasis = DEFAULTS.postInvestmentBasis === 'committed' ? fundSize : remainingCostBasis;
+      }
+
+      const fee = feeBasis * rate;
+      cumulativeFees += fee;
+      data.push({
+        year,
+        label: `Yr ${year}`,
+        fee,
+        cumulativeFees
+      });
+    }
+
+    return data;
+  }, [fundLife, fundSize]);
+
   const totalFees = feeData[feeData.length - 1].cumulativeFees;
   const lpShare = fundSize > 0 ? lpCommitment / fundSize : 0;
   const lpTotalFees = totalFees * lpShare;
@@ -5407,6 +5490,18 @@ const ManagementFeeSection = () => {
   const lpPostInvestmentAvgFee = postInvestmentRows.length > 0
     ? postInvestmentRows.reduce((sum, d) => sum + d.fee * lpShare, 0) / postInvestmentRows.length
     : 0;
+  const feeChartData = feeData.map((d) => ({
+    label: d.label,
+    value: feeChartView === 'fund_total' ? d.fee : (fundSize > 0 ? d.fee / fundSize : 0),
+    cumulative: feeChartView === 'fund_total' ? d.cumulativeFees : (fundSize > 0 ? d.cumulativeFees / fundSize : 0)
+  }));
+  const baselineFeeChartData = baselineFeeData.map((d) => ({
+    label: d.label,
+    value: feeChartView === 'fund_total' ? d.fee : (fundSize > 0 ? d.fee / fundSize : 0),
+    cumulative: feeChartView === 'fund_total' ? d.cumulativeFees : (fundSize > 0 ? d.cumulativeFees / fundSize : 0)
+  }));
+  const fixedFeeChartMax = fundSize * 0.025 * 14 * 1.1;
+  const fixedLpBurdenChartMax = 0.40;
   const baselineNetMultiple = 2.0;
   const feeMultipleDrag = totalFees / fundSize;
   const netAfterFeesOnly = Math.max(1.0, baselineNetMultiple - feeMultipleDrag);
@@ -5532,15 +5627,36 @@ const ManagementFeeSection = () => {
           </p>
         </div>
 
+        <div className="toggle-row chart-view-toggle">
+          <span className="toggle-label">Chart View:</span>
+          <ToggleSwitch
+            options={[
+              { value: 'lp_pct', label: 'LP Burden (% Commitment)' },
+              { value: 'fund_total', label: 'Fund Total Fees ($)' }
+            ]}
+            value={feeChartView}
+            onChange={setFeeChartView}
+          />
+        </div>
+        <p className="terms-explainer">
+          {feeChartView === 'lp_pct'
+            ? 'Default view shows cumulative management fees as a percent of commitment, which makes term changes easier to compare across scenarios. Fund size mostly changes dollar scale, not fee burden percentage.'
+            : 'This view shows cumulative management fees paid by all LPs to the GP in dollars, so fund size has a much larger visual effect.'}
+        </p>
+
         <TimelineChart
-          data={feeData.map(d => ({
-            label: d.label,
-            value: d.fee,
-            cumulative: d.cumulativeFees
-          }))}
+          data={feeChartData}
           height={165}
           showCumulative={true}
+          yMin={0}
+          yMax={feeChartView === 'fund_total' ? fixedFeeChartMax : fixedLpBurdenChartMax}
+          yFormatter={feeChartView === 'fund_total' ? (v) => formatCurrency(v * 1e6, 0) : (v) => formatPercent(v, 0)}
+          compareData={baselineFeeChartData}
+          compareColor="#8A93A7"
         />
+        <p className="bridge-note">
+          Solid line is your current scenario. Dashed line is the baseline fee structure for comparison.
+        </p>
 
         <div className="metrics-row">
           <MetricCard
@@ -6559,6 +6675,23 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
   const gpProfitSharePct = waterfallData.preCarryProfitPool > 0 ? waterfallData.gpCarry / waterfallData.preCarryProfitPool : 0;
   const lpSplitPercent = Math.round((1 - carryRate) * 100);
   const gpSplitPercent = Math.round(carryRate * 100);
+  const currentMarginalSplit = waterfallData.hurdleCleared
+    ? waterfallData.inCatchUpZone
+      ? {
+          lp: 0,
+          gp: 1,
+          note: 'Current state: LPs have cleared the minimum return, and catch-up is active, so the next dollar of profit goes to the GP until the agreed long-run split is restored.'
+        }
+      : {
+          lp: 1 - carryRate,
+          gp: carryRate,
+          note: `Current state: hurdle and catch-up are complete, so each additional dollar of profit now splits LP ${lpSplitPercent}% / GP ${gpSplitPercent}%.`
+        }
+    : {
+        lp: 1,
+        gp: 0,
+        note: 'Current state: LPs have not yet cleared the minimum return, so the next dollar of profit still goes entirely to LPs.'
+      };
 
   return (
     <section id="carried-interest" className="content-section">
@@ -6669,18 +6802,33 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
         <WaterfallChart data={waterfallData.stages} height={280} />
 
         <div className="profit-split-panel">
-          <div className="profit-split-title">Where The Profit Goes</div>
-          <div className="profit-split-bar">
-            <div className="profit-split-segment lp" style={{ width: `${Math.max(0, Math.min(100, lpProfitSharePct * 100))}%` }}>
-              LP {formatPercent(lpProfitSharePct, 0)}
+          <div className="profit-split-title">Profit Split Snapshot</div>
+          <div className="profit-split-row">
+            <div className="profit-split-row-label">Who gets the next dollar of profit?</div>
+            <div className="profit-split-bar">
+              <div className="profit-split-segment lp" style={{ width: `${Math.max(0, Math.min(100, currentMarginalSplit.lp * 100))}%` }}>
+                LP {formatPercent(currentMarginalSplit.lp, 0)}
+              </div>
+              <div className="profit-split-segment gp" style={{ width: `${Math.max(0, Math.min(100, currentMarginalSplit.gp * 100))}%` }}>
+                GP {formatPercent(currentMarginalSplit.gp, 0)}
+              </div>
             </div>
-            <div className="profit-split-segment gp" style={{ width: `${Math.max(0, Math.min(100, gpProfitSharePct * 100))}%` }}>
-              GP {formatPercent(gpProfitSharePct, 0)}
+          </div>
+          <div className="profit-split-state">{currentMarginalSplit.note}</div>
+          <div className="profit-split-row cumulative">
+            <div className="profit-split-row-label">Who got the overall profit so far?</div>
+            <div className="profit-split-bar">
+              <div className="profit-split-segment lp" style={{ width: `${Math.max(0, Math.min(100, lpProfitSharePct * 100))}%` }}>
+                LP {formatPercent(lpProfitSharePct, 0)}
+              </div>
+              <div className="profit-split-segment gp" style={{ width: `${Math.max(0, Math.min(100, gpProfitSharePct * 100))}%` }}>
+                GP {formatPercent(gpProfitSharePct, 0)}
+              </div>
             </div>
           </div>
           <div className="profit-split-meta">
-            <span>LP Profit Share: {formatCurrency(lpProfitAfterCarry * 1e6, 0)} ({formatPercent(lpProfitSharePct, 1)})</span>
-            <span>GP Profit Share: {formatCurrency(waterfallData.gpCarry * 1e6, 0)} ({formatPercent(gpProfitSharePct, 1)})</span>
+            <span>Cumulative LP Profit Share: {formatCurrency(lpProfitAfterCarry * 1e6, 0)} ({formatPercent(lpProfitSharePct, 1)})</span>
+            <span>Cumulative GP Profit Share: {formatCurrency(waterfallData.gpCarry * 1e6, 0)} ({formatPercent(gpProfitSharePct, 1)})</span>
           </div>
         </div>
 
@@ -16083,6 +16231,20 @@ export default function App() {
           margin-bottom: 8px;
         }
 
+        .profit-split-row {
+          margin-top: 8px;
+        }
+
+        .profit-split-row:first-of-type {
+          margin-top: 0;
+        }
+
+        .profit-split-row-label {
+          font-size: 12px;
+          color: #5A667D;
+          margin-bottom: 6px;
+        }
+
         .profit-split-bar {
           width: 100%;
           height: 28px;
@@ -16121,6 +16283,13 @@ export default function App() {
           gap: 10px 18px;
           font-size: 12px;
           color: #596275;
+        }
+
+        .profit-split-state {
+          margin-top: 8px;
+          font-size: 12px;
+          color: #556279;
+          line-height: 1.5;
         }
 
         .profit-split-catchup {
