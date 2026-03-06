@@ -5072,6 +5072,15 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
         are paid.
       </p>
 
+      <div className="interactive-margin-shell">
+        <aside className="interactive-margin-callout" aria-hidden="true">
+          <div className="interactive-margin-arrow">←</div>
+          <div className="interactive-margin-kicker">First live model</div>
+          <div className="interactive-margin-text">
+            Drag the slider. This gross-return setting carries into linked charts below.
+          </div>
+        </aside>
+
       <div className="interactive-block management-fee-block">
         <div className="block-header">
           <span className="block-title">From Gross to Net</span>
@@ -5188,6 +5197,7 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
             IRR by delaying capital contributions and pulling cash flows forward.
           </p>
         </div>
+      </div>
       </div>
 
       <p>
@@ -13166,6 +13176,50 @@ export default function App() {
           color: #9A9690;
         }
 
+        .interactive-margin-shell {
+          position: relative;
+        }
+
+        .interactive-margin-callout {
+          position: absolute;
+          top: 86px;
+          right: -210px;
+          width: 180px;
+          padding: 10px 12px;
+          border: 1px solid #DCE3EE;
+          border-left: 3px solid #C9A84C;
+          border-radius: 12px;
+          background: linear-gradient(180deg, #FFFDF8 0%, #F8FAFD 100%);
+          box-shadow: 0 10px 22px rgba(15, 27, 51, 0.07);
+        }
+
+        .interactive-margin-arrow {
+          position: absolute;
+          left: -18px;
+          top: 14px;
+          color: #A8892E;
+          font-size: 18px;
+          font-weight: 700;
+          line-height: 1;
+          animation: marginArrowNudge 1.8s ease-in-out infinite;
+        }
+
+        .interactive-margin-kicker {
+          font-family: 'Helvetica Neue', sans-serif;
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.8px;
+          text-transform: uppercase;
+          color: #8A6D1F;
+          margin-bottom: 4px;
+        }
+
+        .interactive-margin-text {
+          font-size: 11px;
+          line-height: 1.45;
+          color: #556279;
+        }
+
         .actual-spread-block {
           background:
             radial-gradient(circle at 10% 10%, rgba(27, 42, 74, 0.08), transparent 34%),
@@ -16099,6 +16153,21 @@ export default function App() {
           50% { opacity: 0.5; }
         }
 
+        @keyframes marginArrowNudge {
+          0%, 100% {
+            transform: translateX(0);
+          }
+          50% {
+            transform: translateX(-4px);
+          }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .interactive-margin-arrow {
+            animation: none;
+          }
+        }
+
         /* Comparison Grid */
         .comparison-grid {
           display: grid;
@@ -16929,6 +16998,16 @@ export default function App() {
 
         /* Responsive */
         @media (max-width: 980px) {
+          .interactive-margin-callout {
+            position: static;
+            width: auto;
+            margin: 0 0 12px;
+          }
+
+          .interactive-margin-arrow {
+            display: none;
+          }
+
           .expense-category {
             grid-template-columns: minmax(120px, 160px) minmax(100px, 1fr) 44px;
             row-gap: 4px;
