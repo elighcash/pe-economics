@@ -7929,7 +7929,10 @@ const ConclusionSection = () => (
     <PathwayInlineCta line="Want an expert review of your current PE terms and net-outcome assumptions?" />
 
     <div className="next-module-cta">
-      <div className="next-module-kicker">Continue Exploring</div>
+      <div className="next-module-head">
+        <div className="next-module-kicker">Continue Exploring</div>
+        <div className="next-module-draft">Draft</div>
+      </div>
       <h3>Ready for the next layer?</h3>
       <p>
         If this page helped explain how fund terms affect one vehicle, the next question is how
@@ -17049,7 +17052,31 @@ export default function App() {
           letter-spacing: 1.3px;
           text-transform: uppercase;
           color: #A8892E;
+        }
+
+        .next-module-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
           margin-bottom: 10px;
+          flex-wrap: wrap;
+        }
+
+        .next-module-draft {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 28px;
+          padding: 0 10px;
+          border-radius: 999px;
+          border: 1px solid rgba(168, 137, 46, 0.35);
+          background: rgba(201, 168, 76, 0.12);
+          color: #8A6A17;
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 1.1px;
+          text-transform: uppercase;
         }
 
         .next-module-cta h3 {
