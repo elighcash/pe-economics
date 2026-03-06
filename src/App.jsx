@@ -5246,11 +5246,13 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
       </div>
 
       <p>
-        The difference between gross and net is not mysterious. It is the cumulative effect of contractual economics that compensate the GP, allocate risk, and determine how much of the underlying portfolio return ultimately reaches investors.
+        If you are already wondering why the spread tends to widen at higher gross outcomes, you are asking exactly the right question.
+        Experienced readers may already suspect that carry becomes a bigger part of the story as profits rise. If that intuition is new,
+        keep going and come back to this chart later. The pieces will click quickly once you have seen the mechanics.
       </p>
 
       <p>
-        With that context in place, we can break down each component, starting with the most straightforward: the management fee.
+        With that setup in place, we can break the spread into its parts, starting with the most straightforward one: the management fee.
       </p>
     </section>
   );
