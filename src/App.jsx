@@ -3450,12 +3450,8 @@ const Header = () => {
           <img
             className="header-pathway-mark"
             src={pathwayWordmarkUrl}
-            alt="Pathway Capital logo"
+            alt="Pathway Capital Education logo"
           />
-          <div className="header-brand-stack">
-            <span className="header-kicker">Pathway Capital Education</span>
-            <span className="header-title">Private Markets Economics</span>
-          </div>
         </div>
         <div className="header-actions">
           <div className="header-note">For institutional LP education</div>
@@ -12273,27 +12269,6 @@ export default function App() {
         .header-brand-lockup {
           display: flex;
           align-items: center;
-          gap: 14px;
-        }
-
-        .header-brand-stack {
-          display: grid;
-          gap: 2px;
-        }
-
-        .header-kicker {
-          font-size: 10px;
-          letter-spacing: 1.4px;
-          text-transform: uppercase;
-          color: rgba(255, 255, 255, 0.66);
-          font-weight: 600;
-        }
-
-        .header-title {
-          font-size: 17px;
-          color: #ffffff;
-          font-weight: 500;
-          letter-spacing: 0.2px;
         }
 
         .header-actions {
@@ -12305,7 +12280,7 @@ export default function App() {
         }
 
         .header-pathway-mark {
-          height: 40px;
+          height: 46px;
           width: auto;
           display: block;
           opacity: 1;
@@ -12355,11 +12330,7 @@ export default function App() {
           }
 
           .header-pathway-mark {
-            height: 34px;
-          }
-
-          .header-title {
-            font-size: 15px;
+            height: 38px;
           }
 
           .header-note {
