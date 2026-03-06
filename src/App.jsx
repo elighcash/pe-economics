@@ -6970,8 +6970,8 @@ const UnderinvestingSection = ({
   globalDeploymentRate,
   onDeploymentRateChange
 } = {}) => {
-  const [localGrossMultiple, setLocalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
-  const [localDeploymentRate, setLocalDeploymentRate] = useState(1.0);
+  const [localGrossMultiple] = useState(BASELINE_GROSS_TVPI);
+  const [localDeploymentRate] = useState(1.0);
   const grossMultiple = globalGrossMultiple ?? localGrossMultiple;
   const setGrossMultiple = onGrossMultipleChange ?? setLocalGrossMultiple;
   const deploymentRate = globalDeploymentRate ?? localDeploymentRate;
@@ -7267,20 +7267,12 @@ const UnderinvestingSection = ({
 
 const QuarterlyScheduleSection = ({
   globalGrossMultiple,
-  onGrossMultipleChange,
-  globalDeploymentRate,
-  onDeploymentRateChange
+  globalDeploymentRate
 } = {}) => {
   const [localGrossMultiple, setLocalGrossMultiple] = useState(BASELINE_GROSS_TVPI);
   const [localDeploymentRate, setLocalDeploymentRate] = useState(1.0);
   const grossMultiple = globalGrossMultiple ?? localGrossMultiple;
-  const setGrossMultiple = onGrossMultipleChange ?? setLocalGrossMultiple;
   const deploymentRate = globalDeploymentRate ?? localDeploymentRate;
-  const setDeploymentRate = onDeploymentRateChange ?? setLocalDeploymentRate;
-  const resetQuarterlySchedule = () => {
-    setGrossMultiple(BASELINE_GROSS_TVPI);
-    setDeploymentRate(1.0);
-  };
 
   const model = useMemo(() => {
     return buildQuarterlySchedule({
@@ -7307,40 +7299,15 @@ const QuarterlyScheduleSection = ({
 
       <div className="interactive-block">
         <div className="block-header">
-          <span className="block-title">Model Controls</span>
-          <span className="block-subtitle">These controls are linked across sections</span>
-        </div>
-        <div className="block-actions">
-          <ResetButton onClick={resetQuarterlySchedule} />
-        </div>
-
-        <div className="sliders-grid">
-          <Slider
-            value={grossMultiple}
-            onChange={setGrossMultiple}
-            min={1.0}
-            max={3.5}
-            step={0.05}
-            label="Gross MOIC (On Invested Capital)"
-            format={(v) => `${v.toFixed(2)}x`}
-          />
-          <Slider
-            value={deploymentRate}
-            onChange={setDeploymentRate}
-            min={0.6}
-            max={1.0}
-            step={0.01}
-            label="Deployment Rate"
-            format={(v) => `${(v * 100).toFixed(0)}%`}
-            accent="#C9A84C"
-          />
+          <span className="block-title">Current Linked Scenario</span>
+          <span className="block-subtitle">This table updates automatically as you change shared assumptions elsewhere on the page.</span>
         </div>
 
         <div className="metrics-row">
           <MetricCard
-            label="Gross TVPI"
-            value={`${model.totals.grossMultiple.toFixed(2)}x`}
-            subtext="Commitment basis"
+            label="Gross MOIC"
+            value={`${model.totals.grossMOICOnInvested.toFixed(2)}x`}
+            subtext="On invested capital"
             accent="#2D6B4F"
           />
           <MetricCard
@@ -7356,6 +7323,12 @@ const QuarterlyScheduleSection = ({
             accent="#C9A84C"
           />
         </div>
+
+        <p className="portfolio-inline-note">
+          Deployment rate changes how much capital gets put to work and therefore changes commitment-basis outcomes. It does
+          <strong> not </strong>
+          change the gross MOIC assumption on the dollars that are actually invested.
+        </p>
 
         <div className="assumptions-table-container schedule-table-container">
           <table className="assumptions-table schedule-table">
