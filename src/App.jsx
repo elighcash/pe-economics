@@ -7928,6 +7928,21 @@ const ConclusionSection = () => (
     />
     <PathwayInlineCta line="Want an expert review of your current PE terms and net-outcome assumptions?" />
 
+    <div className="next-module-cta">
+      <div className="next-module-kicker">Continue Exploring</div>
+      <h3>Ready for the next layer?</h3>
+      <p>
+        If this page helped explain how fund terms affect one vehicle, the next question is how
+        those vehicles stack into a full private markets program over time.
+      </p>
+      <a
+        className="next-module-link"
+        href={`${import.meta.env.BASE_URL || '/'}?experience=portfolio#portfolio-hero`}
+      >
+        Explore Portfolio Construction
+      </a>
+    </div>
+
     <div className="pathway-footer">
       <div className="pathway-logo">Pathway Capital</div>
       <p>Institutional Private Equity Investment</p>
@@ -12251,15 +12266,21 @@ export default function App() {
   const compactControls = true;
   const [hasAcceptedDisclaimer, setHasAcceptedDisclaimer] = useState(false);
   const [disclaimerReady, setDisclaimerReady] = useState(false);
+  const [experience] = useState(() => {
+    if (typeof window === 'undefined') return 'economics';
+    const params = new URLSearchParams(window.location.search);
+    return params.get('experience') === 'portfolio' ? 'portfolio' : 'economics';
+  });
+  const activeSections = experience === 'portfolio' ? PORTFOLIO_SECTION_LINKS : SECTION_LINKS;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const validHashes = new Set(SECTION_LINKS.map((section) => section.id));
+    const validHashes = new Set(activeSections.map((section) => section.id));
     const hash = window.location.hash.replace('#', '').toLowerCase();
     if (hash && !validHashes.has(hash)) {
-      window.location.hash = SECTION_LINKS[0].id;
+      window.location.hash = activeSections[0].id;
     }
-  }, []);
+  }, [activeSections]);
 
   useEffect(() => {
     let acknowledged = false;
@@ -17012,6 +17033,64 @@ export default function App() {
           margin-top: 40px;
         }
 
+        .next-module-cta {
+          margin-top: 28px;
+          padding: 24px 26px;
+          border: 1px solid #D9E2EE;
+          border-radius: 20px;
+          background:
+            linear-gradient(135deg, rgba(245, 249, 255, 0.96) 0%, rgba(255, 250, 239, 0.92) 100%);
+          box-shadow: 0 18px 34px rgba(18, 32, 58, 0.08);
+        }
+
+        .next-module-kicker {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 1.3px;
+          text-transform: uppercase;
+          color: #A8892E;
+          margin-bottom: 10px;
+        }
+
+        .next-module-cta h3 {
+          margin: 0 0 10px;
+          color: #1B2A4A;
+          font-size: clamp(24px, 3vw, 32px);
+          line-height: 1.1;
+        }
+
+        .next-module-cta p {
+          margin: 0;
+          max-width: 760px;
+          color: #4F5B72;
+          font-size: 16px;
+          line-height: 1.65;
+        }
+
+        .next-module-link {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 46px;
+          margin-top: 18px;
+          padding: 0 18px;
+          border-radius: 999px;
+          background: #1B2A4A;
+          color: #ffffff;
+          font-size: 14px;
+          font-weight: 700;
+          letter-spacing: 0.2px;
+          text-decoration: none;
+          transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+          box-shadow: 0 14px 26px rgba(27, 42, 74, 0.2);
+        }
+
+        .next-module-link:hover {
+          background: #0F1B33;
+          transform: translateY(-1px);
+          box-shadow: 0 18px 32px rgba(27, 42, 74, 0.24);
+        }
+
         .pathway-footer {
           text-align: center;
           padding: 40px 0;
@@ -17535,47 +17614,66 @@ export default function App() {
 
       <Header />
       <div className="app-shell">
-        <SideNav sections={SECTION_LINKS} />
+        <SideNav sections={activeSections} />
         <main className="app-main">
-          <>
-            <HeroSection />
-            <IntroSection
-              globalGrossMultiple={globalGrossMultiple}
-              onGrossMultipleChange={setGlobalGrossMultiple}
-            />
-            <ManagementFeeSection />
-            <ExpensesSection
-              globalGrossMultiple={globalGrossMultiple}
-              onGrossMultipleChange={setGlobalGrossMultiple}
-              globalDeploymentRate={globalDeploymentRate}
-              onDeploymentRateChange={setGlobalDeploymentRate}
-            />
-            <CarrySection
-              globalGrossMultiple={globalGrossMultiple}
-              onGrossMultipleChange={setGlobalGrossMultiple}
-            />
-            <WaterfallComparisonSection
-              globalGrossMultiple={globalGrossMultiple}
-              onGrossMultipleChange={setGlobalGrossMultiple}
-            />
-            <UnderinvestingSection
-              globalGrossMultiple={globalGrossMultiple}
-              onGrossMultipleChange={setGlobalGrossMultiple}
-              globalDeploymentRate={globalDeploymentRate}
-              onDeploymentRateChange={setGlobalDeploymentRate}
-            />
-            <FeeTradeoffSection
-              globalGrossMultiple={globalGrossMultiple}
-              onGrossMultipleChange={setGlobalGrossMultiple}
-            />
-            <QuarterlyScheduleSection
-              globalGrossMultiple={globalGrossMultiple}
-              onGrossMultipleChange={setGlobalGrossMultiple}
-              globalDeploymentRate={globalDeploymentRate}
-              onDeploymentRateChange={setGlobalDeploymentRate}
-            />
-            <ConclusionSection />
-          </>
+          {experience === 'portfolio' ? (
+            <>
+              <PortfolioHeroSection />
+              <PortfolioLevelSetSection />
+              <PortfolioSingleFundSection />
+              <PortfolioLayeringSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <PortfolioFutureForecastSection />
+              <PortfolioStrategyCurvesSection />
+              <PortfolioTypesSection />
+              <PortfolioTargetingSection />
+              <PortfolioAdjustingExposureSection />
+              <PortfolioRiffsSection />
+              <PortfolioSourcesFooter />
+            </>
+          ) : (
+            <>
+              <HeroSection />
+              <IntroSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <ManagementFeeSection />
+              <ExpensesSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+                globalDeploymentRate={globalDeploymentRate}
+                onDeploymentRateChange={setGlobalDeploymentRate}
+              />
+              <CarrySection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <WaterfallComparisonSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <UnderinvestingSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+                globalDeploymentRate={globalDeploymentRate}
+                onDeploymentRateChange={setGlobalDeploymentRate}
+              />
+              <FeeTradeoffSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <QuarterlyScheduleSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+                globalDeploymentRate={globalDeploymentRate}
+                onDeploymentRateChange={setGlobalDeploymentRate}
+              />
+              <ConclusionSection />
+            </>
+          )}
         </main>
       </div>
       <ComplianceFooter />
