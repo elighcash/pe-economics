@@ -3131,7 +3131,6 @@ const RvpiVintageTrendChart = ({ height = 300 }) => {
 const ActualGrossNetScatter = ({ points, height = 420 }) => {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(920);
-  const [hoverPoint, setHoverPoint] = useState(null);
   const [revealProgress, setRevealProgress] = useState(0);
   const safeHeight = Math.max(320, height);
 
@@ -3200,7 +3199,7 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
   const focusX = xFor(ACTUAL_SPREAD_TARGET.gross);
   const focusY = yFor(ACTUAL_SPREAD_TARGET.net);
   const calloutWidth = Math.min(200, Math.max(156, width * 0.24));
-  const calloutHeight = 72;
+  const calloutHeight = 84;
   const calloutX = padding.left + 14;
   const calloutY = padding.top + 12;
   const trendPath = chartData.trendBuckets.length
@@ -3293,8 +3292,6 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
                 fillOpacity={inFocus ? 0.88 * reveal : 0.24 * reveal}
                 stroke={inFocus ? 'rgba(255, 255, 255, 0.88)' : 'none'}
                 strokeWidth={inFocus ? '0.8' : '0'}
-                onMouseEnter={() => setHoverPoint(point)}
-                onMouseLeave={() => setHoverPoint(null)}
               />
             );
           })}
@@ -3312,7 +3309,10 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
           <rect x={calloutX} y={calloutY} width={calloutWidth} height={calloutHeight} rx="12" fill="rgba(255, 255, 255, 0.94)" stroke="#D6DFEC" />
           <text x={calloutX + 12} y={calloutY + 20} className="actual-spread-callout-kicker">Highlighted Baseline Zone</text>
           <text x={calloutX + 12} y={calloutY + 40} className="actual-spread-callout-title">{ACTUAL_SPREAD_TARGET.gross.toFixed(1)}x gross to {ACTUAL_SPREAD_TARGET.net.toFixed(1)}x net</text>
-          <text x={calloutX + 12} y={calloutY + 58} className="actual-spread-callout-copy">Dense observed cluster from actual Pathway fund outcomes.</text>
+          <text x={calloutX + 12} y={calloutY + 58} className="actual-spread-callout-copy">
+            <tspan x={calloutX + 12} dy="0">Dense observed cluster from</tspan>
+            <tspan x={calloutX + 12} dy="15">actual Pathway fund outcomes.</tspan>
+          </text>
 
           <text x={padding.left + plotWidth / 2} y={safeHeight - 10} textAnchor="middle" className="actual-spread-axis-title">
             Gross Multiple
@@ -3330,21 +3330,9 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
       </div>
 
       <div className="actual-spread-hover-readout" role="status" aria-live="polite">
-        {hoverPoint ? (
-          <>
-            <span className="actual-spread-hover-label">Actual fund outcome</span>
-            <span className="actual-spread-hover-sep">|</span>
-            <span>Gross {hoverPoint.gross.toFixed(2)}x</span>
-            <span className="actual-spread-hover-sep">|</span>
-            <span>Net {hoverPoint.net.toFixed(2)}x</span>
-          </>
-        ) : (
-          <>
-            <span className="actual-spread-hover-label">Dotted line</span>
-            <span className="actual-spread-hover-sep">|</span>
-            <span>Median observed net outcome by gross-return band, using anonymized Pathway fund observations.</span>
-          </>
-        )}
+        <span className="actual-spread-hover-label">Dotted line</span>
+        <span className="actual-spread-hover-sep">|</span>
+        <span>Median observed net outcome by gross-return band, using anonymized Pathway fund observations.</span>
       </div>
 
       {chartData.omittedCount > 0 ? (
