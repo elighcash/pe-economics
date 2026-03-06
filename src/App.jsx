@@ -3132,6 +3132,7 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
   const containerRef = useRef(null);
   const [width, setWidth] = useState(920);
   const [revealProgress, setRevealProgress] = useState(0);
+  const [isInView, setIsInView] = useState(false);
   const safeHeight = Math.max(320, height);
 
   useEffect(() => {
@@ -3149,9 +3150,34 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
   }, []);
 
   useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return undefined;
+    if (typeof IntersectionObserver === 'undefined') {
+      setIsInView(true);
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          if (entry.isIntersecting) {
+            setIsInView(true);
+            observer.disconnect();
+          }
+        });
+      },
+      { threshold: 0.35 }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!isInView) return undefined;
     let rafId = 0;
     const start = performance.now();
-    const duration = 1600;
+    const duration = 3600;
     const animate = (timestamp) => {
       const elapsed = Math.max(0, timestamp - start);
       const progress = clamp(elapsed / duration, 0, 1);
@@ -3160,7 +3186,7 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
     };
     rafId = window.requestAnimationFrame(animate);
     return () => window.cancelAnimationFrame(rafId);
-  }, [points]);
+  }, [points, isInView]);
 
   const chartData = useMemo(() => {
     const allPoints = Array.isArray(points) ? points : [];
