@@ -1,7 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import vcWorldBenchmarksCsvUrl from '../VC World Benchmarks 1993-2025 Consolidated.csv?url';
 import actualGrossNetCsvUrl from '../gross-net-spreads-actual.csv?url';
-import pathwayWordmarkUrl from './assets/pathway-wordmark.svg';
 
 // ============================================================================
 // UTILITY FUNCTIONS
@@ -460,7 +459,6 @@ const BENCHMARK_SECTION_LINKS = [
 
 const ENVIRONMENT_REPORT_FILE = 'pathway-4q25-private-market-environment-report.pdf';
 const ENVIRONMENT_REPORT_PAGE_COUNT = 48;
-const CONTACT_EMAIL = 'newinvestors@pathwaycapital.com';
 const SITE_AS_OF_DATE = 'March 6, 2026';
 const DISCLAIMER_STORAGE_KEY = 'pathway-pe-economics-disclaimer-v1';
 const ACTUAL_SPREAD_DISPLAY_COUNT = 804;
@@ -474,10 +472,6 @@ const ACTUAL_SPREAD_FOCUS_WINDOW = {
   netMin: 1.8,
   netMax: 2.2
 };
-
-const buildMailtoHref = (subject) => `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}`;
-
-const WALKTHROUGH_MAILTO = buildMailtoHref('Pathway Private Markets Economics Walkthrough');
 
 const SideNav = ({ sections }) => {
   const [activeId, setActiveId] = useState(sections[0]?.id || '');
@@ -3271,7 +3265,7 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
           className="actual-spread-chart-svg"
           viewBox={`0 0 ${width} ${safeHeight}`}
           role="img"
-          aria-label="Scatter plot of actual Pathway fund gross multiples against net TVPI, with the 2.5x gross and 2.0x net baseline region highlighted."
+          aria-label="Scatter plot of actual observed fund gross multiples against net TVPI, with the 2.5x gross and 2.0x net baseline region highlighted."
         >
           <defs>
             <linearGradient id="actualSpreadFocusFill" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -3369,7 +3363,7 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
           <text x={calloutX + 12} y={calloutY + 40} className="actual-spread-callout-title">{ACTUAL_SPREAD_TARGET.gross.toFixed(1)}x gross to {ACTUAL_SPREAD_TARGET.net.toFixed(1)}x net</text>
           <text x={calloutX + 12} y={calloutY + 58} className="actual-spread-callout-copy">
             <tspan x={calloutX + 12} dy="0">Dense observed cluster from</tspan>
-            <tspan x={calloutX + 12} dy="15">actual Pathway fund outcomes.</tspan>
+            <tspan x={calloutX + 12} dy="15">actual observed fund outcomes.</tspan>
           </text>
 
           <text x={padding.left + plotWidth / 2} y={safeHeight - 10} textAnchor="middle" className="actual-spread-axis-title">
@@ -3390,7 +3384,7 @@ const ActualGrossNetScatter = ({ points, height = 420 }) => {
       <div className="actual-spread-hover-readout" role="status" aria-live="polite">
         <span className="actual-spread-hover-label">Dotted line</span>
         <span className="actual-spread-hover-sep">|</span>
-        <span>Median observed net outcome by gross-return band, using anonymized Pathway fund observations.</span>
+        <span>Median observed net outcome by gross-return band, using anonymized fund observations.</span>
       </div>
 
       {chartData.omittedCount > 0 ? (
@@ -3494,75 +3488,19 @@ const Header = () => {
     <header className="site-header">
       <div className="header-content">
         <div className="header-brand-lockup">
-          <img
-            className="header-pathway-mark"
-            src={pathwayWordmarkUrl}
-            alt="Pathway Capital Education logo"
-          />
+          <div className="header-note">Private Markets Education</div>
         </div>
         <div className="header-actions">
           <div className="header-note">For institutional LP education</div>
-          <a className="header-cta" href={WALKTHROUGH_MAILTO}>
-            Request a Walkthrough
-          </a>
         </div>
       </div>
     </header>
   );
 };
 
-const StickyContactPrompt = () => {
-  const [collapsed, setCollapsed] = useState(false);
-  const href = buildMailtoHref('Pathway Economics Follow-Up');
+const StickyContactPrompt = () => null;
 
-  if (collapsed) {
-    return (
-      <button
-        type="button"
-        className="sticky-contact-mini"
-        onClick={() => setCollapsed(false)}
-        aria-label="Open Pathway contact prompt"
-      >
-        Request a Walkthrough
-      </button>
-    );
-  }
-
-  return (
-    <div className="sticky-contact-cta" role="complementary" aria-label="Pathway contact prompt">
-      <button
-        type="button"
-        className="sticky-contact-close"
-        onClick={() => setCollapsed(true)}
-        aria-label="Minimize contact prompt"
-      >
-        ×
-      </button>
-      <a
-        className="sticky-contact-link"
-        href={href}
-        target="_blank"
-        rel="noreferrer"
-        aria-label="Contact Pathway new investors"
-      >
-        <span className="sticky-contact-kicker">Pathway Capital</span>
-        <span className="sticky-contact-title">Request a 15-minute walkthrough</span>
-        <span className="sticky-contact-email">{CONTACT_EMAIL}</span>
-      </a>
-    </div>
-  );
-};
-
-const PathwayInlineCta = ({
-  line = 'Want to pressure-test this with an expert?',
-  subject = 'Pathway Private Markets Economics Follow-Up',
-  ctaLabel = 'Request a Walkthrough'
-}) => (
-  <div className="pathway-inline-cta">
-    <span>{line}</span>
-    <a href={buildMailtoHref(subject)}>{ctaLabel}</a>
-  </div>
-);
+const PathwayInlineCta = () => null;
 
 const ComplianceModal = ({ onAcknowledge }) => (
   <div className="compliance-modal-backdrop">
@@ -3585,15 +3523,12 @@ const ComplianceModal = ({ onAcknowledge }) => (
           should not be treated as a prediction or a recommendation.
         </p>
         <p>
-          Past performance is not indicative of future results. Please review fund documentation and speak with Pathway
-          directly before relying on any scenario shown here.
+          Past performance is not indicative of future results. Please review source materials and underlying fund
+          documentation before relying on any scenario shown here.
         </p>
       </div>
       <div className="compliance-modal-meta">As of {SITE_AS_OF_DATE}</div>
       <div className="compliance-modal-actions">
-        <a className="compliance-modal-link" href={WALKTHROUGH_MAILTO}>
-          Contact Pathway
-        </a>
         <button type="button" className="compliance-modal-button" onClick={onAcknowledge}>
           Continue to Site
         </button>
@@ -3605,7 +3540,7 @@ const ComplianceModal = ({ onAcknowledge }) => (
 const ComplianceFooter = () => (
   <footer className="compliance-footer">
     <div className="compliance-footer-inner">
-      <div className="compliance-footer-title">Pathway Capital | Private Markets Economics</div>
+      <div className="compliance-footer-title">Private Markets Economics</div>
       <p>
         For educational purposes only. This material is illustrative, does not constitute an offer or solicitation,
         and should not be relied on as investment, legal, accounting, or tax advice.
@@ -4945,23 +4880,21 @@ const MasterDashboard = ({ asSynthesis = false, globalGrossMultiple, onGrossMult
 
 const HeroSection = () => (
     <section id="hero-baseline" className="hero-section">
-      <div className="pathway-badge">Pathway Capital Educational Guide</div>
       <h1>From Gross Returns to Net LP Results</h1>
       <p className="hero-subtitle">
         Fees, carry, expenses, and timing shape what LPs actually keep.
       </p>
       <p className="hero-purpose-note">
-        A Pathway guide for institutional LPs who want to see where the spread comes from and how to diligence it.
+        A practical guide for institutional LPs who want to see where the spread comes from and how to diligence it.
       </p>
       <p className="hero-abstract">
         This guide walks through the main terms and mechanics that drive the gap between gross fund
-        performance and what LPs ultimately keep, using observed Pathway fund outcomes alongside an
+        performance and what LPs ultimately keep, using observed fund outcomes alongside an
         interactive model of management fees, fund expenses, carried interest, waterfalls, timing, and
         deployment. The goal is simple: make the gross-to-net spread easier to see, easier to question,
         and easier to diligence before capital is committed.
       </p>
       <div className="hero-action-bar">
-        <a className="hero-primary-cta" href={WALKTHROUGH_MAILTO}>Request a Walkthrough</a>
         <a className="hero-secondary-cta" href="#why-matters">Scroll Down to Learn</a>
       </div>
       <div className="hero-trust-strip">Educational only. Illustrative assumptions. As of {SITE_AS_OF_DATE}.</div>
@@ -5255,12 +5188,12 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
       </div>
 
       <p>
-        To anchor that framework in observed outcomes, the charts below use anonymized Pathway-tracked fund data spanning approximately 800 funds dating back to the early 1990s. They show the realized difference between fund-level gross and net returns across a broad sample of actual investments.
+        To anchor that framework in observed outcomes, the charts below use anonymized observed fund data spanning approximately 800 funds dating back to the early 1990s. They show the realized difference between fund-level gross and net returns across a broad sample of actual investments.
       </p>
 
       <div className="interactive-block actual-spread-block">
         <div className="block-header">
-          <span className="block-title">Anonymized Pathway Gross-to-Net Outcomes</span>
+          <span className="block-title">Observed Gross-to-Net Outcomes</span>
           <span className="block-subtitle">A large observed sample gives the public baseline a realistic anchor.</span>
         </div>
 
@@ -5272,7 +5205,7 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
         </p>
 
         {actualSpreadLoading ? (
-          <p className="portfolio-inline-note">Loading actual Pathway fund outcomes...</p>
+          <p className="portfolio-inline-note">Loading observed fund outcomes...</p>
         ) : actualSpreadLoadError ? (
           <p className="portfolio-inline-note">{actualSpreadLoadError}</p>
         ) : actualSpreadData && actualSpreadSummary ? (
@@ -5281,7 +5214,7 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
               <MetricCard
                 label="Anonymized Funds"
                 value={ACTUAL_SPREAD_DISPLAY_COUNT.toLocaleString()}
-                subtext={`Observed by Pathway | vintages ${ACTUAL_SPREAD_VINTAGE_RANGE_LABEL}`}
+                subtext={`Observed sample | vintages ${ACTUAL_SPREAD_VINTAGE_RANGE_LABEL}`}
                 accent="#1B2A4A"
               />
               <MetricCard
@@ -5302,7 +5235,7 @@ const IntroSection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
             <GrossNetSpreadTrendChart buckets={actualSpreadSummary.buckets} />
 
             <p className="actual-spread-footnote">
-              These are anonymized actual returns across {ACTUAL_SPREAD_DISPLAY_COUNT.toLocaleString()} Pathway-observed funds from vintage years {ACTUAL_SPREAD_VINTAGE_RANGE_LABEL}. Some extreme outliers are removed from the visible plot window for readability.
+              These are anonymized actual returns across {ACTUAL_SPREAD_DISPLAY_COUNT.toLocaleString()} observed funds from vintage years {ACTUAL_SPREAD_VINTAGE_RANGE_LABEL}. Some extreme outliers are removed from the visible plot window for readability.
               Many of the terms that shape this spread are knowable before a fund starts, which is exactly why sophisticated LPs diligence and negotiate them.
             </p>
           </>
@@ -6662,6 +6595,8 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
       gpCatchUp,
       gpSplitProfit,
       grossMOIC,
+      preCarryEndingValue,
+      lpPrefTarget,
       preCarryNetIRR,
       preCarryNetMultiple,
       hurdleCleared,
@@ -6677,9 +6612,13 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
   const lpNetIRR = waterfallData.lpNetIRR;
   const preCarryNetIRR = waterfallData.preCarryNetIRR;
   const preCarryVsHurdleBps = (preCarryNetIRR - hurdleRate) * 10000;
+  const postCarryVsHurdleBps = (lpNetIRR - hurdleRate) * 10000;
   const lpProfitAfterCarry = Math.max(0, waterfallData.preCarryProfitPool - waterfallData.gpCarry);
   const lpProfitSharePct = waterfallData.preCarryProfitPool > 0 ? lpProfitAfterCarry / waterfallData.preCarryProfitPool : 1;
   const gpProfitSharePct = waterfallData.preCarryProfitPool > 0 ? waterfallData.gpCarry / waterfallData.preCarryProfitPool : 0;
+  const headlineCarryShare = waterfallData.preCarryProfitPool * carryRate;
+  const carryShortfall = Math.max(0, headlineCarryShare - waterfallData.gpCarry);
+  const carryIsHurdleBound = waterfallData.hurdleCleared && carryShortfall > 1e-6;
   const lpSplitPercent = Math.round((1 - carryRate) * 100);
   const gpSplitPercent = Math.round(carryRate * 100);
   const currentMarginalSplit = waterfallData.hurdleCleared
@@ -6798,6 +6737,70 @@ const CarrySection = ({ globalGrossMultiple, onGrossMultipleChange } = {}) => {
               : `Before carry, the LP return is ${formatPercent(preCarryNetIRR, 1)}. That is still below the ${formatPercent(hurdleRate, 1)} minimum return, so carry has not started yet.`
             }
           </span>
+        </div>
+
+        <div className="carry-feedback-panel">
+          <div className="carry-feedback-title">Why this can feel circular</div>
+          <p className="carry-feedback-copy">
+            Carry is solved after protecting LP capital and the hurdle. So the GP does not simply
+            take the headline carry percentage of all profit. The model has to check how much carry
+            can be paid while still leaving LPs at or above the minimum return.
+          </p>
+
+          <div className="carry-feedback-grid">
+            <div className="carry-feedback-card">
+              <div className="carry-feedback-label">Pre-carry LP IRR</div>
+              <div className="carry-feedback-value">{formatPercent(preCarryNetIRR, 1)}</div>
+              <div className="carry-feedback-subtext">LP result before carry is deducted</div>
+            </div>
+            <div className="carry-feedback-card emphasis">
+              <div className="carry-feedback-label">LP Hurdle Floor</div>
+              <div className="carry-feedback-value">{formatPercent(hurdleRate, 1)}</div>
+              <div className="carry-feedback-subtext">Minimum LP annual return that must be preserved</div>
+            </div>
+            <div className="carry-feedback-card">
+              <div className="carry-feedback-label">Post-carry LP IRR</div>
+              <div className="carry-feedback-value">{formatPercent(lpNetIRR, 1)}</div>
+              <div className="carry-feedback-subtext">LP result after carry is paid</div>
+            </div>
+          </div>
+
+          <div className="carry-feedback-grid secondary">
+            <div className="carry-feedback-card">
+              <div className="carry-feedback-label">Headline GP Carry</div>
+              <div className="carry-feedback-value">{formatCurrency(headlineCarryShare * 1e6, 0)}</div>
+              <div className="carry-feedback-subtext">{formatPercent(carryRate)} of total pre-carry profit</div>
+            </div>
+            <div className="carry-feedback-card">
+              <div className="carry-feedback-label">Actual GP Carry Paid</div>
+              <div className="carry-feedback-value">{formatCurrency(waterfallData.gpCarry * 1e6, 0)}</div>
+              <div className="carry-feedback-subtext">What the waterfall can pay in this scenario</div>
+            </div>
+            <div className="carry-feedback-card">
+              <div className="carry-feedback-label">
+                {carryIsHurdleBound ? 'Protected For LPs' : 'LP Cushion Above Hurdle'}
+              </div>
+              <div className="carry-feedback-value">
+                {carryIsHurdleBound
+                  ? formatCurrency(carryShortfall * 1e6, 0)
+                  : `${postCarryVsHurdleBps >= 0 ? '+' : ''}${postCarryVsHurdleBps.toFixed(0)} bps`}
+              </div>
+              <div className="carry-feedback-subtext">
+                {carryIsHurdleBound
+                  ? 'Additional carry that would push LPs below the hurdle'
+                  : 'Remaining distance between post-carry LP IRR and the hurdle'}
+              </div>
+            </div>
+          </div>
+
+          <p className="carry-feedback-note">
+            {!waterfallData.hurdleCleared
+              ? `Right now, carry is still off: LPs have not yet reached the ${formatPercent(hurdleRate, 1)} hurdle, so the GP cannot take carry at all.`
+              : carryIsHurdleBound
+                ? `This is the circular case. A full ${formatPercent(carryRate)} share of the ${formatCurrency(waterfallData.preCarryProfitPool * 1e6, 0)} pre-carry profit pool would be ${formatCurrency(headlineCarryShare * 1e6, 0)}, but only ${formatCurrency(waterfallData.gpCarry * 1e6, 0)} can be paid. Any more would push LPs below the ${formatPercent(hurdleRate, 1)} hurdle, so the remaining ${formatCurrency(carryShortfall * 1e6, 0)} stays with LPs.`
+                : `There is enough profit above the hurdle that the GP can earn the full headline carry share. After carry is paid, LPs still finish ${postCarryVsHurdleBps >= 0 ? `${postCarryVsHurdleBps.toFixed(0)} bps above` : `${Math.abs(postCarryVsHurdleBps).toFixed(0)} bps below`} the hurdle.`
+            }
+          </p>
         </div>
 
         <p className="carry-hinge-note">
@@ -7933,8 +7936,6 @@ const ConclusionSection = () => (
         'Strategies to reduce management fees and carried interest, such as secondaries and direct equity investments.'
       ]}
     />
-    <PathwayInlineCta line="Want an expert review of your current PE terms and net-outcome assumptions?" />
-
     <div className="next-module-cta">
       <div className="next-module-head">
         <div className="next-module-kicker">Continue Exploring</div>
@@ -7951,11 +7952,6 @@ const ConclusionSection = () => (
       >
         Explore Portfolio Construction
       </a>
-    </div>
-
-    <div className="pathway-footer">
-      <div className="pathway-logo">Pathway Capital</div>
-      <p>Institutional Private Equity Investment</p>
     </div>
 
     <div className="sources-footer">
@@ -7976,7 +7972,6 @@ const ConclusionSection = () => (
 const LiquidityHeroSection = () => (
   <section id="liquidity-hero" className="hero-section liquidity-hero">
     <div className="draft-hero-banner">DRAFT - NOT FINAL</div>
-    <div className="pathway-badge">Pathway Capital Education</div>
     <h1>Liquidity Management in Private Markets</h1>
     <p className="hero-subtitle">Two liquidity engines drive outcomes: normal-course exits and secondary market execution.</p>
     <p className="hero-purpose-note">
@@ -8287,7 +8282,6 @@ const LiquidityToolkitSection = () => (
         <p>Model liquidity as a system-level decision: cash timing, pricing, and reinvestment capacity should be optimized together.</p>
       </div>
     </div>
-    <PathwayInlineCta line="Want to review liquidity options with a specialized private markets team?" />
   </section>
 );
 
@@ -8296,7 +8290,7 @@ const LiquidityToBeBuiltSection = () => (
     <h2>To Be Built</h2>
     <p>
       Next modules for this liquidity guide are scoped below. This keeps the roadmap visible while
-      we ship section-by-section with real Pathway data and practical LP use cases.
+      we ship section-by-section with real data and practical LP use cases.
     </p>
 
     <div className="liquidity-callout-grid">
@@ -8328,7 +8322,6 @@ const LiquidityToBeBuiltSection = () => (
 const EnvironmentHeroSection = () => (
   <section id="environment-hero" className="hero-section environment-hero">
     <div className="draft-hero-banner">DRAFT - NOT FINAL</div>
-    <div className="pathway-badge">Pathway Research</div>
     <h1>Private Market Environment</h1>
     <p className="hero-subtitle">Fourth Quarter 2025</p>
     <p className="hero-purpose-note">
@@ -8443,7 +8436,7 @@ const EnvironmentExplorerSection = () => {
 
         <div className="environment-frame-wrap">
           <iframe
-            title="Pathway 4Q25 Private Market Environment Report"
+            title="Fourth Quarter 2025 Private Market Environment Report"
             src={pdfUrl}
             className="environment-pdf-frame"
           />
@@ -9426,7 +9419,6 @@ const PortfolioHeroStackTeaser = () => {
 
 const PortfolioHeroSection = () => (
   <section id="portfolio-hero" className="hero-section portfolio-hero">
-    <div className="pathway-badge">Pathway Education</div>
     <h1>Portfolio Construction in Private Markets</h1>
     <p className="hero-subtitle">How commitments stack over time to produce durable NAV exposure</p>
     <p className="hero-purpose-note">
@@ -10353,7 +10345,6 @@ const PortfolioStrategyCurvesSection = () => {
             differently and should be modeled independently.
           </p>
         </NuanceDisclosure>
-        <PathwayInlineCta line="Want help mapping these curve behaviors to your actual commitment plan?" />
         </>
         )}
       </div>
@@ -10595,7 +10586,7 @@ const PortfolioTargetingSection = () => {
           to understand, because they each have a massive impact on how you approach PE.
         </p>
         <p className="portfolio-inline-note">
-          One thing I'd like to note is that we (at Pathway) often see folks think about exposure
+          One thing to note is that investors often think about exposure
           targets as a discrete number. Clients work with a consultant to figure out a target, but one
           that applies to their current total portfolio NAV. A diversified PE portfolio takes time to
           develop, and so by the time you reach your expected dollar exposure, the denominator that was
@@ -10728,7 +10719,6 @@ const PortfolioTargetingSection = () => {
         />
       </div>
 
-      <PathwayInlineCta line="Need a second set of eyes on exposure pacing and denominator risk?" />
     </section>
   );
 };
@@ -11139,7 +11129,7 @@ const PortfolioFutureForecastSection = () => {
   const pathwayBands = [
     {
       key: 'pathway-hilo',
-      label: 'Pathway high/low observed band (placeholder)',
+      label: 'Internal high/low observed band (placeholder)',
       series: pathwayHighLowBand,
       fill: 'rgba(181, 71, 58, 0.20)',
       stroke: '#B5473A',
@@ -11148,7 +11138,7 @@ const PortfolioFutureForecastSection = () => {
     },
     {
       key: 'pathway-percentile',
-      label: 'Pathway p10-p90 band (placeholder)',
+      label: 'Internal p10-p90 band (placeholder)',
       series: pathwayPercentileBand,
       fill: 'rgba(45, 107, 79, 0.34)',
       stroke: '#2D6B4F',
@@ -11181,7 +11171,7 @@ const PortfolioFutureForecastSection = () => {
   const pathwayLines = [
     {
       key: 'pathway-median',
-      label: 'Pathway median',
+      label: 'Internal median',
       series: pathwayMedian,
       color: '#1B2A4A',
       dashed: true,
@@ -11208,16 +11198,16 @@ const PortfolioFutureForecastSection = () => {
   const stepTitles = [
     'Start wide: 0 to max outcomes',
     'Tighten with benchmark percentiles',
-    'Switch to Pathway high/low history',
-    'Refine with Pathway percentile ranges',
+    'Switch to internal high/low history',
+    'Refine with internal percentile ranges',
     'Apply diversification smoothing'
   ];
 
   const stepPrompt = [
     'Everything is possible at first. This is a deliberately unhelpful starting point.',
     'Third-party benchmark medians and percentiles quickly trim the impossible tails.',
-    'Manager-level Pathway history provides a stronger bound than broad public benchmarks.',
-    'Pathway percentile ranges tighten uncertainty into a usable planning distribution.',
+    'Manager-level internal history provides a stronger bound than broad public benchmarks.',
+    'Internal percentile ranges tighten uncertainty into a usable planning distribution.',
     'Portfolio diversification compresses single-fund volatility into a steadier expected band.'
   ];
 
@@ -11267,17 +11257,17 @@ const PortfolioFutureForecastSection = () => {
         range to a practical planning band.
       </p>
       <p>
-        To get a practical starting point, let&apos;s look at data internal to Pathway. The figure below
+        To get a practical starting point, let&apos;s look at an internal observed dataset. The figure below
         plots aggregate RVPI by quarter for every vintage from 1993-2022. The underlying data
         represents a diversified PE portfolio of primary fund investments. You will see that each
         vintage tends to follow a pattern: starting around cost, building in value, then declining
         as portfolio companies are realized. Any given vintage year is affected by factors including
-        the macro environment and Pathway&apos;s own diversification choices, but this still provides a
+        the macro environment and portfolio construction choices, but this still provides a
         reasonable baseline for how a diversified vintage of PE investments can progress.
       </p>
       <div className="interactive-block portfolio-rvpi-context-block">
         <div className="block-header">
-          <span className="block-title">Observed RVPI Paths Across Pathway Primary Vintages</span>
+          <span className="block-title">Observed RVPI Paths Across Primary Vintages</span>
           <span className="block-subtitle">Each line is one vintage path; dashed navy line shows aggregate median trend</span>
         </div>
         <RvpiVintageTrendChart height={320} />
@@ -11342,10 +11332,10 @@ const PortfolioFutureForecastSection = () => {
         </div>
 
         <div className="portfolio-funnel-proprietary">
-          <div className="portfolio-funnel-proprietary-title">Pathway&apos;s Expertise</div>
+          <div className="portfolio-funnel-proprietary-title">Why Better Data Helps</div>
           <p>
-            Benchmark data is useful, but it can only narrow the funnel so far. Pathway can
-            tighten these ranges further by grounding assumptions in proprietary manager-level
+            Benchmark data is useful, but it can only narrow the funnel so far. A deeper internal dataset can
+            tighten these ranges further by grounding assumptions in manager-level
             historical NAV and cash-flow behavior.
           </p>
         </div>
@@ -11374,7 +11364,7 @@ const PortfolioFutureForecastSection = () => {
               accent="#4A7BA7"
             />
             <Slider
-              label="Pathway High Terminal (Placeholder)"
+              label="Internal High Terminal (Placeholder)"
               value={pathwayHigh}
               min={1.0}
               max={4.0}
@@ -11384,7 +11374,7 @@ const PortfolioFutureForecastSection = () => {
               accent="#B5473A"
             />
             <Slider
-              label="Pathway Low Terminal (Placeholder)"
+              label="Internal Low Terminal (Placeholder)"
               value={pathwayLow}
               min={0.0}
               max={1.8}
@@ -11394,7 +11384,7 @@ const PortfolioFutureForecastSection = () => {
               accent="#B5473A"
             />
             <Slider
-              label="Pathway P10 Terminal (Placeholder)"
+              label="Internal P10 Terminal (Placeholder)"
               value={pathwayP10}
               min={0.4}
               max={2.4}
@@ -11404,7 +11394,7 @@ const PortfolioFutureForecastSection = () => {
               accent="#2D6B4F"
             />
             <Slider
-              label="Pathway P90 Terminal (Placeholder)"
+              label="Internal P90 Terminal (Placeholder)"
               value={pathwayP90}
               min={1.2}
               max={3.4}
@@ -11464,20 +11454,19 @@ const PortfolioAdjustingExposureSection = () => (
         </p>
       </div>
       <div className="liquidity-callout">
-        <h3>Pathway&apos;s Practical View</h3>
+        <h3>Practical View</h3>
         <p>
           Manage exposure actively at least annually so you are not forced into timing calls that are
           disconnected from portfolio quality or underlying performance.
         </p>
       </div>
     </div>
-    <PathwayInlineCta line="Thinking about accelerating or reducing exposure now?" />
   </section>
 );
 
 const PortfolioRiffsSection = () => (
   <section id="portfolio-riffs" className="content-section">
-    <h2>9. Put This Into Action With Pathway</h2>
+    <h2>9. Implementation Riffs</h2>
     <p>
       The mechanics above are the base layer. The hard part is executing a repeatable program with
       governance, pacing, and liquidity discipline through real market cycles.
@@ -11499,12 +11488,10 @@ const PortfolioRiffsSection = () => (
     </div>
 
     <div className="portfolio-riffs-cta">
-      <div className="portfolio-riffs-cta-title">Want help applying this to your portfolio?</div>
+      <div className="portfolio-riffs-cta-title">Keep Going</div>
       <p>
-        You can learn more in our{' '}
-        <a href="#liquidity-hero">Liquidity Management section</a>{' '}
-        or reach out directly at{' '}
-        <a href="mailto:newinvestors@pathwaycapital.com">newinvestors@pathwaycapital.com</a>.
+        You can learn more in the{' '}
+        <a href="#liquidity-hero">Liquidity Management section</a>.
       </p>
     </div>
 
@@ -11539,7 +11526,6 @@ const PortfolioSourcesFooter = () => (
 const AsiaHeroSection = () => (
   <section id="asia-hero" className="hero-section asia-hero">
     <div className="draft-hero-banner">DRAFT - NOT FINAL</div>
-    <div className="pathway-badge">Pathway Education</div>
     <h1>Investing in Private Equity in Asia</h1>
     <p className="hero-subtitle">A practical LP framework for strategy, manager selection, and implementation risk</p>
     <p className="hero-purpose-note">
@@ -11572,7 +11558,6 @@ const AsiaWhyNowSection = () => (
         <p>The dispersion between top and median outcomes is often wide, so manager selection and pacing policy drive realized results.</p>
       </div>
     </div>
-    <PathwayInlineCta line="Need help deciding how much Asia exposure belongs in your overall private markets program?" />
   </section>
 );
 
@@ -11680,7 +11665,6 @@ const AsiaPortfolioDesignSection = () => {
           <MetricCard label="Risk Goal" value="Controlled Dispersion" subtext="Diversify by country, strategy, and GP process quality" accent="#B5473A" />
         </div>
       </div>
-      <PathwayInlineCta line="Want support turning this into an executable Asia pacing plan?" />
     </section>
   );
 };
@@ -11746,7 +11730,6 @@ const AsiaPlaybookSection = () => (
         <p>Re-underwrite manager assumptions and rebalance strategy/country weights based on realized evidence.</p>
       </div>
     </div>
-    <PathwayInlineCta line="If you want to discuss Asia PE allocation design in detail, Pathway can help." />
   </section>
 );
 
@@ -13462,7 +13445,7 @@ export default function App() {
         }
 
         .actual-spread-chart-shell::before {
-          content: 'Scatter = anonymized Pathway-observed funds | dotted line = median observed net by gross band';
+          content: 'Scatter = anonymized observed funds | dotted line = median observed net by gross band';
           display: block;
           margin-bottom: 8px;
           font-size: 11px;
@@ -16258,6 +16241,82 @@ export default function App() {
           font-size: 12px;
           color: #5E687C;
           line-height: 1.45;
+        }
+
+        .carry-feedback-panel {
+          margin: 0 0 14px;
+          border: 1px solid #DCE3EE;
+          border-radius: 12px;
+          background: linear-gradient(180deg, #FCFDFF 0%, #F6F9FD 100%);
+          padding: 14px;
+        }
+
+        .carry-feedback-title {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.9px;
+          text-transform: uppercase;
+          color: #415574;
+          margin-bottom: 8px;
+        }
+
+        .carry-feedback-copy,
+        .carry-feedback-note {
+          margin: 0;
+          font-size: 12px;
+          line-height: 1.55;
+          color: #58657D;
+        }
+
+        .carry-feedback-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+          gap: 10px;
+          margin-top: 12px;
+        }
+
+        .carry-feedback-grid.secondary {
+          margin-top: 10px;
+        }
+
+        .carry-feedback-card {
+          border: 1px solid #E0E7F1;
+          border-radius: 10px;
+          background: rgba(255, 255, 255, 0.86);
+          padding: 11px 12px;
+        }
+
+        .carry-feedback-card.emphasis {
+          border-color: rgba(201, 168, 76, 0.45);
+          background: rgba(201, 168, 76, 0.08);
+        }
+
+        .carry-feedback-label {
+          font-size: 10px;
+          font-weight: 700;
+          letter-spacing: 0.7px;
+          text-transform: uppercase;
+          color: #6A7588;
+          margin-bottom: 5px;
+        }
+
+        .carry-feedback-value {
+          font-family: 'SF Mono', 'Monaco', monospace;
+          font-size: 15px;
+          color: #1B2A4A;
+          margin-bottom: 4px;
+        }
+
+        .carry-feedback-subtext {
+          font-size: 11px;
+          line-height: 1.45;
+          color: #66748B;
+        }
+
+        .carry-feedback-note {
+          margin-top: 12px;
+          padding-top: 11px;
+          border-top: 1px solid #E2E8F1;
         }
 
         .profit-split-panel {
