@@ -457,6 +457,38 @@ const BENCHMARK_SECTION_LINKS = [
   { id: 'benchmark-table', label: 'Raw Data Analyzer' }
 ];
 
+const EXPERIENCE_CONFIG = {
+  economics: {
+    label: 'Economics',
+    sections: SECTION_LINKS
+  },
+  portfolio: {
+    label: 'Portfolio Construction',
+    sections: PORTFOLIO_SECTION_LINKS
+  },
+  liquidity: {
+    label: 'Liquidity Management',
+    sections: LIQUIDITY_SECTION_LINKS
+  },
+  environment: {
+    label: 'Market Environment',
+    sections: ENVIRONMENT_SECTION_LINKS
+  },
+  asia: {
+    label: 'Asia PE',
+    sections: ASIA_SECTION_LINKS
+  }
+};
+
+const DRAFT_EXPERIENCE_KEYS = ['portfolio', 'liquidity', 'environment', 'asia'];
+
+const buildExperienceHref = (experienceKey, anchorId) => {
+  const base = import.meta.env.BASE_URL || '/';
+  const experienceParam = experienceKey === 'economics' ? '' : `?experience=${experienceKey}`;
+  const hash = anchorId ? `#${anchorId}` : '';
+  return `${base}${experienceParam}${hash}`;
+};
+
 const ENVIRONMENT_REPORT_FILE = 'pathway-4q25-private-market-environment-report.pdf';
 const ENVIRONMENT_REPORT_PAGE_COUNT = 48;
 const SITE_AS_OF_DATE = 'March 6, 2026';
@@ -3483,7 +3515,7 @@ const GrossNetSpreadTrendChart = ({ buckets, height = 210 }) => {
   );
 };
 
-const Header = () => {
+const Header = ({ experience = 'economics' }) => {
   return (
     <header className="site-header">
       <div className="header-content">
@@ -3491,6 +3523,18 @@ const Header = () => {
           <div className="header-note">Private Markets Education</div>
         </div>
         <div className="header-actions">
+          <div className="header-draft-links">
+            <span className="header-draft-label">Draft pages</span>
+            {DRAFT_EXPERIENCE_KEYS.map((key) => (
+              <a
+                key={key}
+                className={`header-draft-link ${experience === key ? 'active' : ''}`}
+                href={buildExperienceHref(key, EXPERIENCE_CONFIG[key].sections[0]?.id)}
+              >
+                {EXPERIENCE_CONFIG[key].label}
+              </a>
+            ))}
+          </div>
           <div className="header-note">For institutional LP education</div>
         </div>
       </div>
@@ -7948,7 +7992,7 @@ const ConclusionSection = () => (
       </p>
       <a
         className="next-module-link"
-        href={`${import.meta.env.BASE_URL || '/'}?experience=portfolio#portfolio-hero`}
+        href={buildExperienceHref('portfolio', 'portfolio-hero')}
       >
         Explore Portfolio Construction
       </a>
@@ -12262,9 +12306,10 @@ export default function App() {
   const [experience] = useState(() => {
     if (typeof window === 'undefined') return 'economics';
     const params = new URLSearchParams(window.location.search);
-    return params.get('experience') === 'portfolio' ? 'portfolio' : 'economics';
+    const nextExperience = params.get('experience') || 'economics';
+    return EXPERIENCE_CONFIG[nextExperience] ? nextExperience : 'economics';
   });
-  const activeSections = experience === 'portfolio' ? PORTFOLIO_SECTION_LINKS : SECTION_LINKS;
+  const activeSections = EXPERIENCE_CONFIG[experience]?.sections || SECTION_LINKS;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -12475,6 +12520,50 @@ export default function App() {
           position: relative;
         }
 
+        .header-draft-links {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+
+        .header-draft-label {
+          font-size: 11px;
+          letter-spacing: 0.5px;
+          color: rgba(255, 255, 255, 0.64);
+          text-transform: uppercase;
+        }
+
+        .header-draft-link {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 30px;
+          padding: 0 10px;
+          border-radius: 999px;
+          border: 1px solid rgba(255, 255, 255, 0.18);
+          background: rgba(255, 255, 255, 0.06);
+          color: rgba(255, 255, 255, 0.86);
+          text-decoration: none;
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 0.35px;
+          transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+        }
+
+        .header-draft-link:hover {
+          transform: translateY(-1px);
+          background: rgba(255, 255, 255, 0.12);
+          border-color: rgba(255, 255, 255, 0.34);
+        }
+
+        .header-draft-link.active {
+          background: rgba(201, 168, 76, 0.18);
+          border-color: rgba(201, 168, 76, 0.56);
+          color: #F8F3E3;
+        }
+
         .header-pathway-mark {
           height: 46px;
           width: auto;
@@ -12521,8 +12610,26 @@ export default function App() {
             gap: 14px;
           }
 
+          .header-actions {
+            justify-content: flex-end;
+          }
+
           .header-brand-lockup {
             min-width: 0;
+          }
+
+          .header-draft-label {
+            display: none;
+          }
+
+          .header-draft-links {
+            gap: 6px;
+          }
+
+          .header-draft-link {
+            min-height: 28px;
+            padding: 0 9px;
+            font-size: 10px;
           }
 
           .header-pathway-mark {
@@ -17719,7 +17826,7 @@ export default function App() {
         }
       `}</style>
 
-      <Header />
+      <Header experience={experience} />
       <div className="app-shell">
         <SideNav sections={activeSections} />
         <main className="app-main">
@@ -17739,6 +17846,37 @@ export default function App() {
               <PortfolioAdjustingExposureSection />
               <PortfolioRiffsSection />
               <PortfolioSourcesFooter />
+            </>
+          ) : experience === 'liquidity' ? (
+            <>
+              <LiquidityHeroSection />
+              <LiquidityNormalCourseSection
+                globalGrossMultiple={globalGrossMultiple}
+                onGrossMultipleChange={setGlobalGrossMultiple}
+              />
+              <LiquiditySecondariesSection globalGrossMultiple={globalGrossMultiple} />
+              <LiquidityToolkitSection />
+              <LiquidityToBeBuiltSection />
+            </>
+          ) : experience === 'environment' ? (
+            <>
+              <EnvironmentHeroSection />
+              <EnvironmentExplorerSection />
+              <EnvironmentThemesSection />
+              <EnvironmentDeltaLabSection />
+              <EnvironmentConversionSection />
+              <EnvironmentBuildPlanSection />
+            </>
+          ) : experience === 'asia' ? (
+            <>
+              <AsiaHeroSection />
+              <AsiaWhyNowSection />
+              <AsiaMarketStructureSection />
+              <AsiaDueDiligenceSection />
+              <AsiaPortfolioDesignSection />
+              <AsiaExecutionGovernanceSection />
+              <AsiaRedFlagsSection />
+              <AsiaPlaybookSection />
             </>
           ) : (
             <>
